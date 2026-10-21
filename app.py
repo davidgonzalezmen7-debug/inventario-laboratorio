@@ -35,10 +35,6 @@ class User(db.Model):
     role = db.Column(db.String(50), nullable=False)
     pin = db.Column(db.String(20), nullable=False)
 
-class Patient(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(150), unique=True, nullable=False)
-
 class Item(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     code = db.Column(db.String(50), nullable=False, unique=False)
@@ -53,7 +49,6 @@ class Item(db.Model):
     lote = db.Column(db.String(50), nullable=True)
     caducidad = db.Column(db.String(20), nullable=True)
     stock_general = db.Column(db.Float, default=0.0)
-    stock_almacen2 = db.Column(db.Float, default=0.0)
     unit = db.Column(db.String(20), default="g")
 
 class Movement(db.Model):
@@ -70,16 +65,6 @@ class Movement(db.Model):
     user_name = db.Column(db.String(100), nullable=False)
     notes = db.Column(db.String(200), nullable=True)
 
-class ControlledLog(db.Model):
-    id = db.Column(db.Integer, primary_key=True)
-    timestamp = db.Column(db.DateTime, default=get_local_now)
-    item_name = db.Column(db.String(150), nullable=False)
-    patient_name = db.Column(db.String(150), nullable=False) # Proyecto / Autorización
-    prescription_num = db.Column(db.String(50), nullable=False) # Folio COFEPRIS / Acta
-    quantity = db.Column(db.Float, nullable=False)
-    doctor_name = db.Column(db.String(150), nullable=True) # Analista / Químico Responsable
-    user_name = db.Column(db.String(100), nullable=False)
-
 class CleaningLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     timestamp = db.Column(db.DateTime, default=get_local_now)
@@ -87,12 +72,10 @@ class CleaningLog(db.Model):
     campanas = db.Column(db.Boolean, default=False)
     superficies = db.Column(db.Boolean, default=False)
     residuos = db.Column(db.Boolean, default=False)
-    carton = db.Column(db.Boolean, default=False)
-    equipo = db.Column(db.Boolean, default=False)
     notes = db.Column(db.String(250), nullable=True)
 
 # -----------------------------------------------------------------------------
-# PLANTILLA HTML INTEGRADA CON NUEVO DISEÑO CONCEPTUAL
+# PLANTILLA HTML INTEGRADA
 # -----------------------------------------------------------------------------
 
 HTML_TEMPLATE = """<!DOCTYPE html>
@@ -124,25 +107,22 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 </div>
             </div>
             <nav class="flex flex-wrap gap-1 text-xs font-bold">
-                <a href="/terminal" class="px-2.5 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'terminal' %}bg-teal-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-teal-100{% endif %}">
+                <a href="/terminal" class="px-3 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'terminal' %}bg-teal-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-teal-100{% endif %}">
                     <i class="fa-solid fa-pen-to-square"></i> Consumo / Ensayos
                 </a>
-                <a href="/alta_insumos" class="px-2.5 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'alta_insumos' %}bg-emerald-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-emerald-100{% endif %}">
+                <a href="/alta_insumos" class="px-3 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'alta_insumos' %}bg-emerald-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-emerald-100{% endif %}">
                     <i class="fa-solid fa-plus-circle"></i> Alta Reactivo
                 </a>
-                <a href="/inventario" class="px-2.5 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'inventario' %}bg-teal-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-teal-100{% endif %}">
+                <a href="/inventario" class="px-3 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'inventario' %}bg-teal-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-teal-100{% endif %}">
                     <i class="fa-solid fa-boxes-stacked"></i> Inventario
                 </a>
-                <a href="/controlados" class="px-2.5 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'controlados' %}bg-rose-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-rose-100{% endif %}">
-                    <i class="fa-solid fa-radiation"></i> Precursores/Regulados
-                </a>
-                <a href="/limpieza" class="px-2.5 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'limpieza' %}bg-cyan-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-cyan-100{% endif %}">
+                <a href="/limpieza" class="px-3 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'limpieza' %}bg-cyan-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-cyan-100{% endif %}">
                     <i class="fa-solid fa-broom"></i> Bitácora Área
                 </a>
-                <a href="/bitacora" class="px-2.5 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'bitacora' %}bg-teal-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-teal-100{% endif %}">
+                <a href="/bitacora" class="px-3 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'bitacora' %}bg-teal-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-teal-100{% endif %}">
                     <i class="fa-solid fa-clock-rotate-left"></i> Historial
                 </a>
-                <a href="/usuarios" class="px-2.5 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'usuarios' %}bg-teal-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-teal-100{% endif %}">
+                <a href="/usuarios" class="px-3 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'usuarios' %}bg-teal-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-teal-100{% endif %}">
                     <i class="fa-solid fa-lock"></i> Personal
                 </a>
             </nav>
@@ -302,7 +282,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                                 <option value="Material de Vidrio">Material de Vidrio</option>
                                 <option value="Medio de Cultivo">Medio de Cultivo</option>
                                 <option value="Estándar Analítico">Estándar Analítico</option>
-                                <option value="Precursor Regulado">Precursor Regulado</option>
                             </select>
                         </div>
                         <div>
@@ -336,7 +315,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                             <option value="Inflamable">🔴 Inflamable</option>
                             <option value="Corrosivo">🧪 Corrosivo</option>
                             <option value="Tóxico / Nocivo">💀 Tóxico / Nocivo</option>
-                            <option value="Precursor Regulado">🟣 Precursor Regulado (COFEPRIS)</option>
                         </select>
                     </div>
                     <div class="grid grid-cols-2 gap-2">
@@ -427,8 +405,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                                     <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">🧪 Corrosivo</span>
                                 {% elif item.hazard_label == 'Tóxico / Nocivo' %}
                                     <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-300">💀 Tóxico</span>
-                                {% elif item.hazard_label == 'Precursor Regulado' %}
-                                    <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-300">🟣 Precursor</span>
                                 {% else %}
                                     <span class="text-slate-400 text-xs">🟢 Seguro</span>
                                 {% endif %}
@@ -459,115 +435,6 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         {% endfor %}
                     </tbody>
                 </table>
-            </div>
-        </div>
-
-        {% elif view == 'controlados' %}
-        <div class="space-y-6">
-            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-1">
-                    <h2 class="text-base font-bold text-slate-900 mb-4 border-b pb-2 flex items-center gap-2">
-                        <i class="fa-solid fa-radiation text-rose-600"></i> Consumo de Precursor / Regulado
-                    </h2>
-
-                    <form action="/add_controlled" method="POST" class="space-y-3">
-                        <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Sustancia Regulada</label>
-                            <input list="controlled_items_list" name="item_name" required placeholder="Seleccione precursor..." class="w-full p-2.5 border rounded-xl text-sm bg-rose-50 focus:bg-white focus:ring-2 focus:ring-rose-500 outline-none font-bold">
-                            <datalist id="controlled_items_list">
-                                {% for item in controlled_items %}
-                                    <option value="{{ item.code }} - {{ item.name }} (Lote: {{ item.lote or 'S/L' }})">
-                                {% endfor %}
-                            </datalist>
-                        </div>
-
-                        <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Proyecto / Análisis Autorizado</label>
-                            <input type="text" name="patient_name" required placeholder="Ej. Protocolo COFEPRIS #2026-A" class="w-full p-2.5 border rounded-xl text-sm outline-none font-medium">
-                        </div>
-
-                        <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">No. Folio / Acta / Licencia</label>
-                            <input type="text" name="prescription_num" required placeholder="Ej. LIC-COFEPRIS-9901" class="w-full p-2.5 border rounded-xl text-sm font-mono outline-none">
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-2">
-                            <div>
-                                <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Cantidad</label>
-                                <input type="number" step="any" min="0.01" value="1" name="quantity" required class="w-full p-2.5 border rounded-xl text-sm font-bold outline-none">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Químico Responsable</label>
-                                <input type="text" name="doctor_name" placeholder="Ej. Dr. Ramírez" class="w-full p-2.5 border rounded-xl text-sm outline-none">
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-2 gap-2">
-                            <div>
-                                <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Analista</label>
-                                <select name="user_id" required class="w-full p-2.5 border rounded-xl text-sm bg-slate-50 outline-none">
-                                    <option value="">Analista...</option>
-                                    {% for u in users %}
-                                        <option value="{{ u.id }}">{{ u.name }}</option>
-                                    {% endfor %}
-                                </select>
-                            </div>
-                            <div>
-                                <label class="block text-xs font-bold text-slate-600 uppercase mb-1">PIN</label>
-                                <input type="password" name="pin" required placeholder="PIN" class="w-full p-2.5 border rounded-xl text-sm outline-none">
-                            </div>
-                        </div>
-
-                        <button type="submit" class="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3 rounded-xl shadow-md transition duration-200 flex items-center justify-center gap-2 mt-2">
-                            <i class="fa-solid fa-file-signature"></i> Registrar Salida Regulada
-                        </button>
-                    </form>
-                </div>
-
-                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-2">
-                    <div class="flex justify-between items-center mb-4 border-b pb-3">
-                        <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
-                            <i class="fa-solid fa-book-medical text-rose-600"></i> Bitácora de Sustancias Controladas
-                        </h2>
-                        <button onclick="window.print()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition flex items-center gap-1.5 no-print">
-                            <i class="fa-solid fa-print"></i> Imprimir Libro
-                        </button>
-                    </div>
-
-                    <div class="overflow-x-auto">
-                        <table class="w-full text-xs text-left text-slate-600">
-                            <thead class="text-xs text-slate-500 uppercase bg-slate-50 border-b">
-                                <tr>
-                                    <th class="p-2.5">Fecha/Hora</th>
-                                    <th class="p-2.5">Sustancia</th>
-                                    <th class="p-2.5">Proyecto / Autorización</th>
-                                    <th class="p-2.5">Folio / Acta</th>
-                                    <th class="p-2.5 text-center">Cant.</th>
-                                    <th class="p-2.5">Responsable</th>
-                                </tr>
-                            </thead>
-                            <tbody class="divide-y divide-slate-100">
-                                {% for log in controlled_logs %}
-                                <tr class="hover:bg-slate-50">
-                                    <td class="p-2.5 font-mono text-slate-500">{{ log.timestamp.strftime('%d/%m/%Y %H:%M') }}</td>
-                                    <td class="p-2.5 font-bold text-slate-900">{{ log.item_name }}</td>
-                                    <td class="p-2.5 font-medium text-slate-800">{{ log.patient_name }}</td>
-                                    <td class="p-2.5 font-mono text-rose-700 font-bold bg-rose-50 rounded px-1.5 py-0.5">{{ log.prescription_num }}</td>
-                                    <td class="p-2.5 text-center font-bold text-slate-900">{{ log.quantity }}</td>
-                                    <td class="p-2.5">
-                                        <span class="block text-slate-800 font-medium">{{ log.doctor_name or 'N/E' }}</span>
-                                        <span class="block text-[10px] text-slate-400">Entregó: {{ log.user_name }}</span>
-                                    </td>
-                                </tr>
-                                {% else %}
-                                <tr>
-                                    <td colspan="6" class="p-6 text-center text-slate-400 italic">No hay registros en la bitácora de precursores.</td>
-                                </tr>
-                                {% endfor %}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
             </div>
         </div>
 
@@ -823,43 +690,6 @@ def inventario():
     warning_str = (datetime.now(LOCAL_TZ).date() + timedelta(days=30)).isoformat()
     return render_template_string(HTML_TEMPLATE, view="inventario", items=items, today_str=today_str, warning_str=warning_str)
 
-@app.route("/controlados")
-def controlados():
-    controlled_items = Item.query.filter((Item.hazard_label == "Precursor Regulado") | (Item.category == "Precursor Regulado")).order_by(Item.name).all()
-    controlled_logs = ControlledLog.query.order_by(ControlledLog.timestamp.desc()).all()
-    users = User.query.order_by(User.name).all()
-    return render_template_string(HTML_TEMPLATE, view="controlados", controlled_items=controlled_items, controlled_logs=controlled_logs, users=users)
-
-@app.route("/add_controlled", methods=["POST"])
-def add_controlled():
-    item_name = request.form.get("item_name", "").strip()
-    patient_name = request.form.get("patient_name", "").strip()
-    prescription_num = request.form.get("prescription_num", "").strip()
-    quantity = float(request.form.get("quantity", 1))
-    doctor_name = request.form.get("doctor_name", "").strip()
-    user_id = request.form.get("user_id")
-    pin = request.form.get("pin", "").strip()
-
-    user = User.query.get(user_id)
-    if not user or user.pin != pin:
-        flash("PIN de seguridad incorrecto.", "error")
-        return redirect(url_for("controlados"))
-
-    new_log = ControlledLog(
-        timestamp=get_local_now(),
-        item_name=item_name,
-        patient_name=patient_name,
-        prescription_num=prescription_num,
-        quantity=quantity,
-        doctor_name=doctor_name,
-        user_name=user.name
-    )
-    db.session.add(new_log)
-    db.session.commit()
-
-    flash(f"Salida regulada de '{item_name}' registrada correctamente.", "success")
-    return redirect(url_for("controlados"))
-
 @app.route("/limpieza")
 def limpieza():
     cleaning_logs = CleaningLog.query.order_by(CleaningLog.timestamp.desc()).all()
@@ -1036,8 +866,7 @@ def seed_database():
         if Item.query.count() == 0:
             db.session.add_all([
                 Item(code="REQ-01", name="Etanol Absoluto ACS", cas_number="64-17-5", category="Reactivo Químico", purity="99.9%", physical_state="Líquido", storage_condition="Campana Inflamables", hazard_label="Inflamable", location="Estante A-1", lote="ET-2026-1", caducidad="2028-12-31", stock_general=2500, unit="ml"),
-                Item(code="REQ-02", name="Ácido Clorhídrico 37%", cas_number="7647-01-0", category="Reactivo Químico", purity="37%", physical_state="Líquido", storage_condition="Temperatura Ambiente", hazard_label="Corrosivo", location="Gabinete Ácidos", lote="HCL-992", caducidad="2027-06-30", stock_general=1000, unit="ml"),
-                Item(code="REG-01", name="Sustancia de Referencia Controlada", cas_number="50-36-7", category="Precursor Regulado", purity="99.5%", physical_state="Sólido / Polvo", storage_condition="Refrigeración (4°C)", hazard_label="Precursor Regulado", location="Caja Fuerte", lote="REF-2026", caducidad="2027-11-15", stock_general=50, unit="g")
+                Item(code="REQ-02", name="Ácido Clorhídrico 37%", cas_number="7647-01-0", category="Reactivo Químico", purity="37%", physical_state="Líquido", storage_condition="Temperatura Ambiente", hazard_label="Corrosivo", location="Gabinete Ácidos", lote="HCL-992", caducidad="2027-06-30", stock_general=1000, unit="ml")
             ])
         db.session.commit()
 
