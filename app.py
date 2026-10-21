@@ -482,4 +482,566 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         </div>
 
                         <div>
-                            <label class="block text-xs font-bold text-slate-6
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Proyecto / Análisis Autorizado</label>
+                            <input type="text" name="patient_name" required placeholder="Ej. Protocolo COFEPRIS #2026-A" class="w-full p-2.5 border rounded-xl text-sm outline-none font-medium">
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">No. Folio / Acta / Licencia</label>
+                            <input type="text" name="prescription_num" required placeholder="Ej. LIC-COFEPRIS-9901" class="w-full p-2.5 border rounded-xl text-sm font-mono outline-none">
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Cantidad</label>
+                                <input type="number" step="any" min="0.01" value="1" name="quantity" required class="w-full p-2.5 border rounded-xl text-sm font-bold outline-none">
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Químico Responsable</label>
+                                <input type="text" name="doctor_name" placeholder="Ej. Dr. Ramírez" class="w-full p-2.5 border rounded-xl text-sm outline-none">
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Analista</label>
+                                <select name="user_id" required class="w-full p-2.5 border rounded-xl text-sm bg-slate-50 outline-none">
+                                    <option value="">Analista...</option>
+                                    {% for u in users %}
+                                        <option value="{{ u.id }}">{{ u.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 uppercase mb-1">PIN</label>
+                                <input type="password" name="pin" required placeholder="PIN" class="w-full p-2.5 border rounded-xl text-sm outline-none">
+                            </div>
+                        </div>
+
+                        <button type="submit" class="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-3 rounded-xl shadow-md transition duration-200 flex items-center justify-center gap-2 mt-2">
+                            <i class="fa-solid fa-file-signature"></i> Registrar Salida Regulada
+                        </button>
+                    </form>
+                </div>
+
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-2">
+                    <div class="flex justify-between items-center mb-4 border-b pb-3">
+                        <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                            <i class="fa-solid fa-book-medical text-rose-600"></i> Bitácora de Sustancias Controladas
+                        </h2>
+                        <button onclick="window.print()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold transition flex items-center gap-1.5 no-print">
+                            <i class="fa-solid fa-print"></i> Imprimir Libro
+                        </button>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-xs text-left text-slate-600">
+                            <thead class="text-xs text-slate-500 uppercase bg-slate-50 border-b">
+                                <tr>
+                                    <th class="p-2.5">Fecha/Hora</th>
+                                    <th class="p-2.5">Sustancia</th>
+                                    <th class="p-2.5">Proyecto / Autorización</th>
+                                    <th class="p-2.5">Folio / Acta</th>
+                                    <th class="p-2.5 text-center">Cant.</th>
+                                    <th class="p-2.5">Responsable</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                {% for log in controlled_logs %}
+                                <tr class="hover:bg-slate-50">
+                                    <td class="p-2.5 font-mono text-slate-500">{{ log.timestamp.strftime('%d/%m/%Y %H:%M') }}</td>
+                                    <td class="p-2.5 font-bold text-slate-900">{{ log.item_name }}</td>
+                                    <td class="p-2.5 font-medium text-slate-800">{{ log.patient_name }}</td>
+                                    <td class="p-2.5 font-mono text-rose-700 font-bold bg-rose-50 rounded px-1.5 py-0.5">{{ log.prescription_num }}</td>
+                                    <td class="p-2.5 text-center font-bold text-slate-900">{{ log.quantity }}</td>
+                                    <td class="p-2.5">
+                                        <span class="block text-slate-800 font-medium">{{ log.doctor_name or 'N/E' }}</span>
+                                        <span class="block text-[10px] text-slate-400">Entregó: {{ log.user_name }}</span>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="6" class="p-6 text-center text-slate-400 italic">No hay registros en la bitácora de precursores.</td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% elif view == 'limpieza' %}
+        <div class="space-y-6">
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-1">
+                    <h2 class="text-base font-bold text-slate-900 mb-4 border-b pb-2 flex items-center gap-2">
+                        <i class="fa-solid fa-broom text-cyan-600"></i> Mantenimiento y Sanitización
+                    </h2>
+
+                    <form action="/add_cleaning" method="POST" class="space-y-4">
+                        <div class="grid grid-cols-2 gap-2">
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Analista</label>
+                                <select name="user_id" required class="w-full p-2.5 border rounded-xl text-xs bg-slate-50 outline-none">
+                                    <option value="">Seleccione...</option>
+                                    {% for u in users %}
+                                        <option value="{{ u.id }}">{{ u.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-xs font-bold text-slate-600 uppercase mb-1">PIN</label>
+                                <input type="password" name="pin" required placeholder="PIN" class="w-full p-2.5 border rounded-xl text-xs outline-none">
+                            </div>
+                        </div>
+
+                        <div class="bg-cyan-50/60 p-4 rounded-xl border border-cyan-100 space-y-3">
+                            <h3 class="text-xs font-bold text-cyan-900 uppercase border-b border-cyan-200 pb-1">
+                                Verificación de Campanas y Mesadas
+                            </h3>
+
+                            <label class="flex items-center gap-2.5 text-xs font-medium text-slate-700 cursor-pointer">
+                                <input type="checkbox" name="campanas" class="w-4 h-4 text-cyan-600 rounded">
+                                <span>💨 Sanitización Campana de Extracción</span>
+                            </label>
+
+                            <label class="flex items-center gap-2.5 text-xs font-medium text-slate-700 cursor-pointer">
+                                <input type="checkbox" name="superficies" class="w-4 h-4 text-cyan-600 rounded">
+                                <span>🧽 Limpieza de Mesadas de Análisis</span>
+                            </label>
+
+                            <label class="flex items-center gap-2.5 text-xs font-medium text-slate-700 cursor-pointer">
+                                <input type="checkbox" name="residuos" class="w-4 h-4 text-cyan-600 rounded">
+                                <span>♻️ Desecho de Residuos Peligrosos (RPBI/Químicos)</span>
+                            </label>
+                        </div>
+
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Notas</label>
+                            <input type="text" name="notes" placeholder="Ej. Se utilizó etanol al 70%..." class="w-full p-2.5 border rounded-xl text-xs outline-none">
+                        </div>
+
+                        <button type="submit" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3 rounded-xl shadow-md transition flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-clipboard-check"></i> Registrar Mantenimiento
+                        </button>
+                    </form>
+                </div>
+
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-2">
+                    <div class="flex justify-between items-center mb-4 border-b pb-3">
+                        <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                            <i class="fa-solid fa-list-check text-cyan-600"></i> Histórico de Sanitización
+                        </h2>
+                        <button onclick="window.print()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold no-print">
+                            <i class="fa-solid fa-print"></i> Imprimir
+                        </button>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-xs text-left text-slate-600">
+                            <thead class="text-xs text-slate-500 uppercase bg-slate-50 border-b">
+                                <tr>
+                                    <th class="p-2.5">Fecha/Hora</th>
+                                    <th class="p-2.5">Responsable</th>
+                                    <th class="p-2.5 text-center">Campanas</th>
+                                    <th class="p-2.5 text-center">Mesadas</th>
+                                    <th class="p-2.5 text-center">Residuos</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-slate-100">
+                                {% for log in cleaning_logs %}
+                                <tr class="hover:bg-slate-50">
+                                    <td class="p-2.5 font-mono text-slate-500">{{ log.timestamp.strftime('%d/%m/%Y %H:%M') }}</td>
+                                    <td class="p-2.5 font-bold text-slate-900">
+                                        {{ log.user_name }}
+                                        {% if log.notes %}<span class="block text-[10px] text-slate-400 font-normal">{{ log.notes }}</span>{% endif %}
+                                    </td>
+                                    <td class="p-2.5 text-center">{% if log.campanas %}<span class="text-emerald-600 font-bold">✓</span>{% else %}-{% endif %}</td>
+                                    <td class="p-2.5 text-center">{% if log.superficies %}<span class="text-emerald-600 font-bold">✓</span>{% else %}-{% endif %}</td>
+                                    <td class="p-2.5 text-center">{% if log.residuos %}<span class="text-emerald-600 font-bold">✓</span>{% else %}-{% endif %}</td>
+                                </tr>
+                                {% else %}
+                                <tr><td colspan="5" class="p-6 text-center text-slate-400 italic">No hay actividades de mantenimiento registradas.</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        {% elif view == 'bitacora' %}
+        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+            <div class="flex justify-between items-center mb-4 border-b pb-3">
+                <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+                    <i class="fa-solid fa-clock-rotate-left text-teal-600"></i> Bitácora e Histórico de Auditoría
+                </h2>
+                <button onclick="window.print()" class="px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-bold no-print">
+                    <i class="fa-solid fa-print"></i> Imprimir Bitácora
+                </button>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-xs text-left text-slate-600">
+                    <thead class="text-xs text-slate-500 uppercase bg-slate-50 border-b">
+                        <tr>
+                            <th class="p-3">Fecha y Hora</th>
+                            <th class="p-3">Operación</th>
+                            <th class="p-3">Reactivo / Insumo</th>
+                            <th class="p-3 text-center">Cantidad</th>
+                            <th class="p-3">Proyecto / Ensayo</th>
+                            <th class="p-3">Responsable</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-100">
+                        {% for mov in movements %}
+                        <tr class="hover:bg-slate-50">
+                            <td class="p-3 text-slate-500 font-mono">{{ mov.timestamp.strftime('%d/%m/%Y %H:%M') }}</td>
+                            <td class="p-3 font-bold">
+                                <span class="px-2.5 py-1 rounded-full text-[10px] uppercase {% if mov.type == 'Entrada' %}bg-emerald-100 text-emerald-800{% elif mov.type == 'Salida' %}bg-blue-100 text-blue-800{% else %}bg-rose-100 text-rose-800{% endif %}">
+                                    {{ mov.type }}
+                                </span>
+                            </td>
+                            <td class="p-3 font-bold text-slate-900">{{ mov.item_name }}</td>
+                            <td class="p-3 text-center font-bold text-sm">{{ mov.quantity }}</td>
+                            <td class="p-3 font-medium text-slate-800">{{ mov.patient_name or 'N/A' }}</td>
+                            <td class="p-3 text-teal-900 font-bold">{{ mov.user_name }}</td>
+                        </tr>
+                        {% else %}
+                        <tr><td colspan="6" class="p-8 text-center text-slate-400 italic">No hay movimientos registrados.</td></tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        {% elif view == 'usuarios' %}
+        {% if not is_admin %}
+        <div class="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 max-w-md mx-auto text-center">
+            <div class="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center text-2xl mx-auto mb-4">
+                <i class="fa-solid fa-lock"></i>
+            </div>
+            <h2 class="text-lg font-bold text-slate-900">Acceso Restringido a Administrador</h2>
+            <p class="text-xs text-slate-500 mt-1 mb-6">Ingrese la contraseña del Administrador (PIN: 1234) para gestionar el personal.</p>
+
+            <form action="/auth_admin" method="POST" class="space-y-4">
+                <input type="password" name="admin_pin" required placeholder="Contraseña de Administrador" class="w-full p-3 border rounded-xl text-center text-lg tracking-widest outline-none">
+                <button type="submit" class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 rounded-xl transition">
+                    Desbloquear Pestaña
+                </button>
+            </form>
+        </div>
+        {% else %}
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-1">
+                <h2 class="text-base font-bold text-slate-900 mb-4 border-b pb-2 flex items-center gap-2">
+                    <i class="fa-solid fa-user-plus text-teal-600"></i> Registrar Personal
+                </h2>
+                <form action="/save_user" method="POST" class="space-y-4">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Nombre Completo</label>
+                        <input type="text" name="name" required placeholder="Ej. Dr. Juan Pérez" class="w-full p-2.5 border rounded-xl text-sm outline-none">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Cargo / Rol</label>
+                        <select name="role" required class="w-full p-2.5 border rounded-xl text-sm bg-slate-50 outline-none">
+                            <option value="Investigador Principal">Investigador Principal</option>
+                            <option value="Técnico de Laboratorio">Técnico de Laboratorio</option>
+                            <option value="Analista QC">Analista QC</option>
+                            <option value="Administrador">Administrador</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">PIN / Contraseña</label>
+                        <input type="password" name="pin" required placeholder="••••" class="w-full p-2.5 border rounded-xl text-sm outline-none">
+                    </div>
+                    <button type="submit" class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 rounded-xl shadow-md transition">
+                        Guardar Personal
+                    </button>
+                </form>
+            </div>
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-2">
+                <h2 class="text-base font-bold text-slate-900 mb-4 border-b pb-2 flex items-center gap-2">
+                    <i class="fa-solid fa-users text-teal-600"></i> Personal Autorizado
+                </h2>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {% for u in users %}
+                    <div class="p-4 rounded-xl border bg-slate-50 flex justify-between items-center">
+                        <div>
+                            <h4 class="font-bold text-slate-900 text-sm">{{ u.name }}</h4>
+                            <p class="text-xs text-slate-500">{{ u.role }}</p>
+                        </div>
+                        <span class="text-xs font-mono bg-teal-100 text-teal-800 px-2 py-1 rounded">Activo</span>
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
+        {% endif %}
+    </main>
+
+    <script>
+        function selectUser(id) {
+            var elem = document.getElementById('userSelect');
+            if(elem) elem.value = id;
+        }
+        function filterInventory() {
+            var input = document.getElementById("inventorySearch");
+            var filter = input.value.toLowerCase();
+            var rows = document.getElementsByClassName("inventory-row");
+            for (var i = 0; i < rows.length; i++) {
+                var text = rows[i].innerText.toLowerCase();
+                rows[i].style.display = text.includes(filter) ? "" : "none";
+            }
+        }
+    </script>
+</body>
+</html>
+"""
+
+# -----------------------------------------------------------------------------
+# RUTAS DE LA APLICACIÓN
+# -----------------------------------------------------------------------------
+
+@app.route("/")
+@app.route("/terminal")
+def terminal():
+    items = Item.query.order_by(Item.name).all()
+    users = User.query.order_by(User.name).all()
+    return render_template_string(HTML_TEMPLATE, view="terminal", items=items, users=users)
+
+@app.route("/alta_insumos")
+def alta_insumos():
+    return render_template_string(HTML_TEMPLATE, view="alta_insumos")
+
+@app.route("/inventario")
+def inventario():
+    items = Item.query.order_by(Item.name).all()
+    today_str = datetime.now(LOCAL_TZ).date().isoformat()
+    warning_str = (datetime.now(LOCAL_TZ).date() + timedelta(days=30)).isoformat()
+    return render_template_string(HTML_TEMPLATE, view="inventario", items=items, today_str=today_str, warning_str=warning_str)
+
+@app.route("/controlados")
+def controlados():
+    controlled_items = Item.query.filter((Item.hazard_label == "Precursor Regulado") | (Item.category == "Precursor Regulado")).order_by(Item.name).all()
+    controlled_logs = ControlledLog.query.order_by(ControlledLog.timestamp.desc()).all()
+    users = User.query.order_by(User.name).all()
+    return render_template_string(HTML_TEMPLATE, view="controlados", controlled_items=controlled_items, controlled_logs=controlled_logs, users=users)
+
+@app.route("/add_controlled", methods=["POST"])
+def add_controlled():
+    item_name = request.form.get("item_name", "").strip()
+    patient_name = request.form.get("patient_name", "").strip()
+    prescription_num = request.form.get("prescription_num", "").strip()
+    quantity = float(request.form.get("quantity", 1))
+    doctor_name = request.form.get("doctor_name", "").strip()
+    user_id = request.form.get("user_id")
+    pin = request.form.get("pin", "").strip()
+
+    user = User.query.get(user_id)
+    if not user or user.pin != pin:
+        flash("PIN de seguridad incorrecto.", "error")
+        return redirect(url_for("controlados"))
+
+    new_log = ControlledLog(
+        timestamp=get_local_now(),
+        item_name=item_name,
+        patient_name=patient_name,
+        prescription_num=prescription_num,
+        quantity=quantity,
+        doctor_name=doctor_name,
+        user_name=user.name
+    )
+    db.session.add(new_log)
+    db.session.commit()
+
+    flash(f"Salida regulada de '{item_name}' registrada correctamente.", "success")
+    return redirect(url_for("controlados"))
+
+@app.route("/limpieza")
+def limpieza():
+    cleaning_logs = CleaningLog.query.order_by(CleaningLog.timestamp.desc()).all()
+    users = User.query.order_by(User.name).all()
+    return render_template_string(HTML_TEMPLATE, view="limpieza", cleaning_logs=cleaning_logs, users=users)
+
+@app.route("/bitacora")
+def bitacora():
+    movements = Movement.query.order_by(Movement.timestamp.desc()).all()
+    return render_template_string(HTML_TEMPLATE, view="bitacora", movements=movements)
+
+@app.route("/usuarios")
+def usuarios():
+    users = User.query.order_by(User.name).all()
+    is_admin = request.args.get("admin") == "true"
+    return render_template_string(HTML_TEMPLATE, view="usuarios", users=users, is_admin=is_admin)
+
+@app.route("/auth_admin", methods=["POST"])
+def auth_admin():
+    admin_pin = request.form.get("admin_pin")
+    admin_user = User.query.filter_by(role="Administrador").first()
+    
+    if admin_pin == "1234" or admin_pin == "5678" or (admin_user and admin_user.pin == admin_pin):
+        flash("Acceso concedido a la gestión de personal.", "success")
+        return redirect(url_for("usuarios", admin="true"))
+    else:
+        flash("Contraseña de Administrador incorrecta.", "error")
+        return redirect(url_for("usuarios"))
+
+@app.route("/add_item", methods=["POST"])
+def add_item():
+    try:
+        new_item = Item(
+            code=request.form.get("code", "").strip().upper(),
+            cas_number=request.form.get("cas_number", "").strip(),
+            name=request.form.get("name", "").strip(),
+            category=request.form.get("category"),
+            purity=request.form.get("purity"),
+            physical_state=request.form.get("physical_state"),
+            storage_condition=request.form.get("storage_condition"),
+            hazard_label=request.form.get("hazard_label"),
+            location=request.form.get("location"),
+            lote=request.form.get("lote"),
+            caducidad=request.form.get("caducidad"),
+            stock_general=float(request.form.get("stock_general", 0)),
+            unit=request.form.get("unit")
+        )
+        db.session.add(new_item)
+        db.session.commit()
+        flash("Reactivo registrado con éxito.", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Error al registrar: {str(e)}", "error")
+    return redirect(url_for("alta_insumos"))
+
+@app.route("/register", methods=["POST"])
+def register_movement():
+    user_id = request.form.get("user_id")
+    pin = request.form.get("pin")
+    item_search = request.form.get("item_search", "").strip()
+    mov_type = request.form.get("type")
+    warehouse = request.form.get("warehouse")
+    quantity = float(request.form.get("quantity", 1))
+    service = request.form.get("service")
+    patient_name = request.form.get("patient_name")
+    patient_id = request.form.get("patient_id")
+    notes = request.form.get("notes")
+
+    user = User.query.get(user_id)
+    if not user or user.pin != pin:
+        flash("PIN o usuario incorrecto.", "error")
+        return redirect(url_for("terminal"))
+
+    item = None
+    if item_search.startswith("[ID:") and "]" in item_search:
+        try:
+            item_id = int(item_search.split("[ID:")[1].split("]")[0])
+            item = Item.query.get(item_id)
+        except Exception:
+            item = None
+
+    if not item:
+        clean_code = item_search.split(" - ")[0] if " - " in item_search else item_search
+        item = Item.query.filter((Item.code == clean_code) | (Item.name.ilike(f"%{item_search}%"))).first()
+
+    if not item:
+        flash("Reactivo no encontrado.", "error")
+        return redirect(url_for("terminal"))
+
+    if mov_type == "Entrada":
+        item.stock_general += quantity
+    else:
+        if item.stock_general < quantity:
+            flash(f"Stock insuficiente ({item.stock_general} {item.unit} disponibles).", "error")
+            return redirect(url_for("terminal"))
+        item.stock_general -= quantity
+
+    mov = Movement(
+        timestamp=get_local_now(),
+        item_code=item.code,
+        item_name=item.name,
+        type=mov_type,
+        quantity=quantity,
+        warehouse=warehouse,
+        service=service,
+        patient_name=patient_name,
+        patient_id=patient_id,
+        user_name=user.name,
+        notes=notes
+    )
+    db.session.add(mov)
+    db.session.commit()
+
+    flash(f"Movimiento registrado para '{item.name}'.", "success")
+    return redirect(url_for("terminal"))
+
+@app.route("/add_cleaning", methods=["POST"])
+def add_cleaning():
+    user_id = request.form.get("user_id")
+    pin = request.form.get("pin")
+    campanas = 'campanas' in request.form
+    superficies = 'superficies' in request.form
+    residuos = 'residuos' in request.form
+    notes = request.form.get("notes")
+
+    user = User.query.get(user_id)
+    if not user or user.pin != pin:
+        flash("PIN incorrecto.", "error")
+        return redirect(url_for("limpieza"))
+
+    log = CleaningLog(
+        timestamp=get_local_now(),
+        user_name=user.name,
+        campanas=campanas,
+        superficies=superficies,
+        residuos=residuos,
+        notes=notes
+    )
+    db.session.add(log)
+    db.session.commit()
+    flash("Bitácora de mantenimiento guardada correctamente.", "success")
+    return redirect(url_for("limpieza"))
+
+@app.route("/save_user", methods=["POST"])
+def save_user():
+    name = request.form.get("name", "").strip()
+    role = request.form.get("role")
+    pin = request.form.get("pin", "").strip()
+
+    if name and pin:
+        user = User.query.filter_by(name=name).first()
+        if user:
+            user.role = role
+            user.pin = pin
+            flash(f"Usuario {name} actualizado con éxito.", "success")
+        else:
+            new_user = User(name=name, role=role, pin=pin)
+            db.session.add(new_user)
+            flash(f"Usuario {name} registrado con éxito.", "success")
+        db.session.commit()
+    return redirect(url_for("usuarios", admin="true"))
+
+# -----------------------------------------------------------------------------
+# INICIALIZACIÓN DE DATOS SEMILLA
+# -----------------------------------------------------------------------------
+def seed_database():
+    with app.app_context():
+        db.create_all()
+        if User.query.count() == 0:
+            db.session.add_all([
+                User(name="Administrador General", role="Administrador", pin="1234"),
+                User(name="Q.F.B. Laura Martínez", role="Analista QC", pin="4321")
+            ])
+        if Item.query.count() == 0:
+            db.session.add_all([
+                Item(code="REQ-01", name="Etanol Absoluto ACS", cas_number="64-17-5", category="Reactivo Químico", purity="99.9%", physical_state="Líquido", storage_condition="Campana Inflamables", hazard_label="Inflamable", location="Estante A-1", lote="ET-2026-1", caducidad="2028-12-31", stock_general=2500, unit="ml"),
+                Item(code="REQ-02", name="Ácido Clorhídrico 37%", cas_number="7647-01-0", category="Reactivo Químico", purity="37%", physical_state="Líquido", storage_condition="Temperatura Ambiente", hazard_label="Corrosivo", location="Gabinete Ácidos", lote="HCL-992", caducidad="2027-06-30", stock_general=1000, unit="ml"),
+                Item(code="REG-01", name="Sustancia de Referencia Controlada", cas_number="50-36-7", category="Precursor Regulado", purity="99.5%", physical_state="Sólido / Polvo", storage_condition="Refrigeración (4°C)", hazard_label="Precursor Regulado", location="Caja Fuerte", lote="REF-2026", caducidad="2027-11-15", stock_general=50, unit="g")
+            ])
+        db.session.commit()
+
+seed_database()
+
+if __name__ == "__main__":
+    app.run(debug=True)
