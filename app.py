@@ -49,7 +49,8 @@ class Item(db.Model):
     lote = db.Column(db.String(50), nullable=True)
     fecha_entrada = db.Column(db.DateTime, default=get_local_now) # Fecha de registro/entrada
     fecha_apertura = db.Column(db.String(20), nullable=True) # Fecha en que se abrió el reactivo
-    caducidad = db.Column(db.String(20), nullable=True) # Fecha de término / caducidad
+    caducidad_original = db.Column(db.String(20), nullable=True) # Fecha de caducidad original del fabricante
+    caducidad = db.Column(db.String(20), nullable=True) # Fecha de término del reactivo
     etiqueta = db.Column(db.String(50), default="General") # Inflamable, Tóxico, Corrosivo, etc.
     stock_general = db.Column(db.Integer, default=0)
     stock_estacion = db.Column(db.Integer, default=0) # Stock en estaciones de trabajo / mesas
@@ -307,7 +308,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
                             <i class="fa-solid fa-boxes-stacked text-cyan-600"></i> Inventario de Reactivos y Materiales
                         </h2>
-                        <p class="text-xs text-slate-500">Control de números de referencia, fechas de entrada, apertura, término y seguridad.</p>
+                        <p class="text-xs text-slate-500">Control de referencias, fechas de entrada, apertura, caducidad original, término y seguridad.</p>
                     </div>
                     <div class="w-full md:w-80 relative">
                         <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-slate-400 text-sm"></i>
@@ -323,7 +324,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                                 <th class="p-3">Nombre / Descripción</th>
                                 <th class="p-3">Categoría / Almacenamiento</th>
                                 <th class="p-3">Peligro / Etiqueta</th>
-                                <th class="p-3">Fechas (Entrada / Apertura / Término)</th>
+                                <th class="p-3">Fechas (Entrada / Apertura / Cad. Original / Término)</th>
                                 <th class="p-3 text-center">Almacén</th>
                                 <th class="p-3 text-center">Estación</th>
                                 <th class="p-3 text-center">Acciones Admin</th>
@@ -359,12 +360,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                                 <td class="p-3 text-xs text-slate-600">
                                     <span class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded">Entrada: {{ item.fecha_entrada.strftime('%d/%m/%Y') if item.fecha_entrada else 'S/F' }}</span>
                                     <span class="block text-[10px] text-cyan-800 mt-1">Apertura: {{ item.fecha_apertura or 'Sin abrir' }}</span>
-                                    <span class="block text-[10px] text-rose-700 font-bold mt-0.5">Término/Cad: {{ item.caducidad or 'S/F' }}</span>
+                                    <span class="block text-[10px] text-amber-700 mt-0.5">Cad. Original: {{ item.caducidad_original or 'S/F' }}</span>
+                                    <span class="block text-[10px] text-rose-700 font-bold mt-0.5">Término: {{ item.caducidad or 'S/F' }}</span>
                                 </td>
                                 <td class="p-3 text-center font-bold text-emerald-800">{{ item.stock_general }} {{ item.unit }}</td>
                                 <td class="p-3 text-center font-bold text-cyan-800">{{ item.stock_estacion }} {{ item.unit }}</td>
                                 <td class="p-3 text-center">
-                                    <button onclick="openEditItemModal('{{ item.id }}', '{{ item.code }}', '{{ item.name }}', '{{ item.category }}', '{{ item.reference_number or '' }}', '{{ item.storage_condition or '' }}', '{{ item.etiqueta or 'General' }}', '{{ item.lote or '' }}', '{{ item.fecha_apertura or '' }}', '{{ item.caducidad or '' }}', '{{ item.stock_general }}', '{{ item.stock_estacion }}')" class="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-800 font-bold rounded-lg text-xs transition flex items-center gap-1 mx-auto">
+                                    <button onclick="openEditItemModal('{{ item.id }}', '{{ item.code }}', '{{ item.name }}', '{{ item.category }}', '{{ item.reference_number or '' }}', '{{ item.storage_condition or '' }}', '{{ item.etiqueta or 'General' }}', '{{ item.lote or '' }}', '{{ item.fecha_apertura or '' }}', '{{ item.caducidad_original or '' }}', '{{ item.caducidad or '' }}', '{{ item.stock_general }}', '{{ item.stock_estacion }}')" class="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-800 font-bold rounded-lg text-xs transition flex items-center gap-1 mx-auto">
                                         <i class="fa-solid fa-lock text-amber-600"></i> Modificar
                                     </button>
                                 </td>
@@ -434,7 +436,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-3 gap-2">
+                    <div class="grid grid-cols-2 gap-2">
                         <div>
                             <label class="block text-[11px] font-bold text-slate-600 uppercase mb-1">Lote</label>
                             <input type="text" name="lote" id="modal_lote" class="w-full p-2 border rounded-xl text-xs font-medium">
@@ -442,6 +444,13 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         <div>
                             <label class="block text-[11px] font-bold text-slate-600 uppercase mb-1">F. Apertura</label>
                             <input type="date" name="fecha_apertura" id="modal_apertura" class="w-full p-2 border rounded-xl text-xs">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-600 uppercase mb-1">Cad. Original</label>
+                            <input type="date" name="caducidad_original" id="modal_cad_original" class="w-full p-2 border rounded-xl text-xs">
                         </div>
                         <div>
                             <label class="block text-[11px] font-bold text-slate-600 uppercase mb-1">F. Término</label>
@@ -512,7 +521,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                             <input type="text" name="storage_condition" placeholder="Temp. Ambiente / Frio" class="w-full p-2.5 border rounded-xl text-sm outline-none">
                         </div>
                     </div>
-                    <div class="grid grid-cols-3 gap-2">
+                    <div class="grid grid-cols-2 gap-2">
                         <div>
                             <label class="block text-[11px] font-bold text-slate-600 uppercase mb-1">Lote</label>
                             <input type="text" name="lote" placeholder="LOTE-X" class="w-full p-2.5 border rounded-xl text-sm outline-none">
@@ -520,6 +529,12 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         <div>
                             <label class="block text-[11px] font-bold text-slate-600 uppercase mb-1">F. Apertura</label>
                             <input type="date" name="fecha_apertura" class="w-full p-2.5 border rounded-xl text-sm outline-none">
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-600 uppercase mb-1">Cad. Original</label>
+                            <input type="date" name="caducidad_original" class="w-full p-2.5 border rounded-xl text-sm outline-none">
                         </div>
                         <div>
                             <label class="block text-[11px] font-bold text-slate-600 uppercase mb-1">F. Término</label>
@@ -952,7 +967,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
-        function openEditItemModal(id, code, name, category, reference, storage, etiq, lote, apertura, cad, gen, est) {
+        function openEditItemModal(id, code, name, category, reference, storage, etiq, lote, apertura, cad_original, cad, gen, est) {
             document.getElementById('modal_item_id').value = id;
             document.getElementById('modal_code').value = code;
             document.getElementById('modal_name').value = name;
@@ -962,6 +977,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             document.getElementById('modal_etiqueta').value = etiq;
             document.getElementById('modal_lote').value = lote;
             document.getElementById('modal_apertura').value = apertura;
+            document.getElementById('modal_cad_original').value = cad_original;
             document.getElementById('modal_caducidad').value = cad;
             document.getElementById('modal_stock_general').value = gen;
             document.getElementById('modal_stock_estacion').value = est;
@@ -1131,6 +1147,7 @@ def update_item():
         item.etiqueta = request.form.get("etiqueta", item.etiqueta)
         item.lote = request.form.get("lote", item.lote).strip()
         item.fecha_apertura = request.form.get("fecha_apertura", item.fecha_apertura).strip()
+        item.caducidad_original = request.form.get("caducidad_original", item.caducidad_original).strip()
         item.caducidad = request.form.get("caducidad", item.caducidad).strip()
         item.stock_general = int(request.form.get("stock_general", item.stock_general))
         item.stock_estacion = int(request.form.get("stock_estacion", item.stock_estacion))
@@ -1323,6 +1340,7 @@ def add_item():
     storage_condition = request.form.get("storage_condition", "").strip()
     lote = request.form.get("lote", "").strip()
     fecha_apertura = request.form.get("fecha_apertura", "").strip()
+    caducidad_original = request.form.get("caducidad_original", "").strip()
     caducidad = request.form.get("caducidad", "").strip()
     etiqueta = request.form.get("etiqueta", "General")
     unit = request.form.get("unit", "pza").strip()
@@ -1338,6 +1356,7 @@ def add_item():
             lote=lote,
             fecha_entrada=get_local_now(),
             fecha_apertura=fecha_apertura,
+            caducidad_original=caducidad_original,
             caducidad=caducidad,
             etiqueta=etiqueta,
             unit=unit, 
@@ -1371,9 +1390,9 @@ def seed_database():
 
         if Item.query.count() == 0:
             items_list = [
-                Item(code="REQ-001", name="Ácido Clorhídrico 37%", category="Reactivo Químico", reference_number="REF-764701", storage_condition="Temperatura Ambiente", lote="LOT-A991", fecha_apertura="2026-03-01", caducidad="2028-05-30", etiqueta="Corrosivo", stock_general=25, stock_estacion=5),
-                Item(code="REQ-002", name="Etanol Absoluto", category="Reactivo Químico", reference_number="REF-641705", storage_condition="Área de Inflamables", lote="LOT-B102", fecha_apertura="2026-03-10", caducidad="2027-10-15", etiqueta="Inflamable", stock_general=50, stock_estacion=10),
-                Item(code="MAT-001", name="Matraz Erlenmeyer 250ml", category="Material de Vidrio", reference_number="REF-MAT250", storage_condition="Anaquel Vidriería", lote="S/L", fecha_apertura="", caducidad="", etiqueta="General", stock_general=30, stock_estacion=8)
+                Item(code="REQ-001", name="Ácido Clorhídrico 37%", category="Reactivo Químico", reference_number="REF-764701", storage_condition="Temperatura Ambiente", lote="LOT-A991", fecha_apertura="2026-03-01", caducidad_original="2028-06-30", caducidad="2028-05-30", etiqueta="Corrosivo", stock_general=25, stock_estacion=5),
+                Item(code="REQ-002", name="Etanol Absoluto", category="Reactivo Químico", reference_number="REF-641705", storage_condition="Área de Inflamables", lote="LOT-B102", fecha_apertura="2026-03-10", caducidad_original="2027-11-15", caducidad="2027-10-15", etiqueta="Inflamable", stock_general=50, stock_estacion=10),
+                Item(code="MAT-001", name="Matraz Erlenmeyer 250ml", category="Material de Vidrio", reference_number="REF-MAT250", storage_condition="Anaquel Vidriería", lote="S/L", fecha_apertura="", caducidad_original="", caducidad="", etiqueta="General", stock_general=30, stock_estacion=8)
             ]
             db.session.add_all(items_list)
 
