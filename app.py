@@ -44,10 +44,12 @@ class Item(db.Model):
     code = db.Column(db.String(50), nullable=False)
     name = db.Column(db.String(150), nullable=False)
     category = db.Column(db.String(50), nullable=False) # Reactivo, Material de Vidrio, Consumible
-    cas_number = db.Column(db.String(50), nullable=True) # No. CAS para químicos
+    reference_number = db.Column(db.String(50), nullable=True) # No. de Referencia
     storage_condition = db.Column(db.String(50), nullable=True) # Temp. Ambiente, Refrigeración, Congelación
     lote = db.Column(db.String(50), nullable=True)
-    caducidad = db.Column(db.String(20), nullable=True)
+    fecha_entrada = db.Column(db.DateTime, default=get_local_now) # Fecha de registro/entrada
+    fecha_apertura = db.Column(db.String(20), nullable=True) # Fecha en que se abrió el reactivo
+    caducidad = db.Column(db.String(20), nullable=True) # Fecha de término / caducidad
     etiqueta = db.Column(db.String(50), default="General") # Inflamable, Tóxico, Corrosivo, etc.
     stock_general = db.Column(db.Integer, default=0)
     stock_estacion = db.Column(db.Integer, default=0) # Stock en estaciones de trabajo / mesas
@@ -224,10 +226,10 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
                         <div class="md:col-span-5">
                             <label class="block text-[11px] font-semibold text-slate-600 mb-1">Reactivo / Insumo</label>
-                            <input list="items_list" id="temp_item" placeholder="Buscar por código, nombre, CAS..." class="w-full p-2 border rounded-lg text-xs focus:ring-2 focus:ring-cyan-500 outline-none bg-white font-medium">
+                            <input list="items_list" id="temp_item" placeholder="Buscar por código, nombre, referencia..." class="w-full p-2 border rounded-lg text-xs focus:ring-2 focus:ring-cyan-500 outline-none bg-white font-medium">
                             <datalist id="items_list">
                                 {% for item in items %}
-                                    <option value="[ID:{{ item.id }}] {{ item.code }} - {{ item.name }} (CAS: {{ item.cas_number or 'N/A' }})">Alm: {{ item.stock_general }} | Est: {{ item.stock_estacion }} | {{ item.etiqueta }}</option>
+                                    <option value="[ID:{{ item.id }}] {{ item.code }} - {{ item.name }} (Ref: {{ item.reference_number or 'N/A' }})">Alm: {{ item.stock_general }} | Est: {{ item.stock_estacion }} | {{ item.etiqueta }}</option>
                                 {% endfor %}
                             </datalist>
                         </div>
@@ -305,11 +307,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
                             <i class="fa-solid fa-boxes-stacked text-cyan-600"></i> Inventario de Reactivos y Materiales
                         </h2>
-                        <p class="text-xs text-slate-500">Control de números CAS, etiquetas de seguridad y almacenamiento.</p>
+                        <p class="text-xs text-slate-500">Control de números de referencia, fechas de entrada, apertura, término y seguridad.</p>
                     </div>
                     <div class="w-full md:w-80 relative">
                         <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-slate-400 text-sm"></i>
-                        <input type="text" id="inventorySearch" onkeyup="filterInventory()" placeholder="Buscar por código, CAS, nombre..." class="w-full pl-10 pr-4 py-2 border rounded-xl text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-cyan-500 outline-none font-medium">
+                        <input type="text" id="inventorySearch" onkeyup="filterInventory()" placeholder="Buscar por código, referencia, nombre..." class="w-full pl-10 pr-4 py-2 border rounded-xl text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-cyan-500 outline-none font-medium">
                     </div>
                 </div>
 
@@ -317,11 +319,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     <table class="w-full text-sm text-left text-slate-600" id="inventoryTable">
                         <thead class="text-xs text-slate-500 uppercase bg-slate-50 border-b">
                             <tr>
-                                <th class="p-3">Código / CAS</th>
+                                <th class="p-3">Código / No. Referencia</th>
                                 <th class="p-3">Nombre / Descripción</th>
                                 <th class="p-3">Categoría / Almacenamiento</th>
                                 <th class="p-3">Peligro / Etiqueta</th>
-                                <th class="p-3">Lote / Caducidad</th>
+                                <th class="p-3">Fechas (Entrada / Apertura / Término)</th>
                                 <th class="p-3 text-center">Almacén</th>
                                 <th class="p-3 text-center">Estación</th>
                                 <th class="p-3 text-center">Acciones Admin</th>
@@ -332,7 +334,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                             <tr class="hover:bg-slate-50 transition inventory-row">
                                 <td class="p-3 font-mono text-xs font-bold text-cyan-900">
                                     {{ item.code }}
-                                    <span class="block text-[10px] text-slate-500">CAS: {{ item.cas_number or 'N/A' }}</span>
+                                    <span class="block text-[10px] text-slate-500">Ref: {{ item.reference_number or 'N/A' }}</span>
                                 </td>
                                 <td class="p-3 font-bold text-slate-900">
                                     {{ item.name }}
@@ -355,13 +357,14 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                                     {% endif %}
                                 </td>
                                 <td class="p-3 text-xs text-slate-600">
-                                    <span class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded">Lote: {{ item.lote or 'S/L' }}</span>
-                                    <span class="block text-[10px] text-slate-400 mt-0.5">Cad: {{ item.caducidad or 'S/F' }}</span>
+                                    <span class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded">Entrada: {{ item.fecha_entrada.strftime('%d/%m/%Y') if item.fecha_entrada else 'S/F' }}</span>
+                                    <span class="block text-[10px] text-cyan-800 mt-1">Apertura: {{ item.fecha_apertura or 'Sin abrir' }}</span>
+                                    <span class="block text-[10px] text-rose-700 font-bold mt-0.5">Término/Cad: {{ item.caducidad or 'S/F' }}</span>
                                 </td>
                                 <td class="p-3 text-center font-bold text-emerald-800">{{ item.stock_general }} {{ item.unit }}</td>
                                 <td class="p-3 text-center font-bold text-cyan-800">{{ item.stock_estacion }} {{ item.unit }}</td>
                                 <td class="p-3 text-center">
-                                    <button onclick="openEditItemModal('{{ item.id }}', '{{ item.code }}', '{{ item.name }}', '{{ item.category }}', '{{ item.cas_number or '' }}', '{{ item.storage_condition or '' }}', '{{ item.etiqueta or 'General' }}', '{{ item.lote or '' }}', '{{ item.caducidad or '' }}', '{{ item.stock_general }}', '{{ item.stock_estacion }}')" class="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-800 font-bold rounded-lg text-xs transition flex items-center gap-1 mx-auto">
+                                    <button onclick="openEditItemModal('{{ item.id }}', '{{ item.code }}', '{{ item.name }}', '{{ item.category }}', '{{ item.reference_number or '' }}', '{{ item.storage_condition or '' }}', '{{ item.etiqueta or 'General' }}', '{{ item.lote or '' }}', '{{ item.fecha_apertura or '' }}', '{{ item.caducidad or '' }}', '{{ item.stock_general }}', '{{ item.stock_estacion }}')" class="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-800 font-bold rounded-lg text-xs transition flex items-center gap-1 mx-auto">
                                         <i class="fa-solid fa-lock text-amber-600"></i> Modificar
                                     </button>
                                 </td>
@@ -422,8 +425,8 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 
                     <div class="grid grid-cols-2 gap-3">
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Número CAS</label>
-                            <input type="text" name="cas_number" id="modal_cas" class="w-full p-2 border rounded-xl text-xs font-mono">
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">No. Referencia</label>
+                            <input type="text" name="reference_number" id="modal_reference" class="w-full p-2 border rounded-xl text-xs font-mono">
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Almacenamiento</label>
@@ -431,13 +434,17 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         </div>
                     </div>
 
-                    <div class="grid grid-cols-2 gap-3">
+                    <div class="grid grid-cols-3 gap-2">
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Lote</label>
+                            <label class="block text-[11px] font-bold text-slate-600 uppercase mb-1">Lote</label>
                             <input type="text" name="lote" id="modal_lote" class="w-full p-2 border rounded-xl text-xs font-medium">
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Caducidad</label>
+                            <label class="block text-[11px] font-bold text-slate-600 uppercase mb-1">F. Apertura</label>
+                            <input type="date" name="fecha_apertura" id="modal_apertura" class="w-full p-2 border rounded-xl text-xs">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-600 uppercase mb-1">F. Término</label>
                             <input type="date" name="caducidad" id="modal_caducidad" class="w-full p-2 border rounded-xl text-xs">
                         </div>
                     </div>
@@ -497,21 +504,25 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                     </div>
                     <div class="grid grid-cols-2 gap-2">
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Número CAS</label>
-                            <input type="text" name="cas_number" placeholder="Ej. 7647-01-0" class="w-full p-2.5 border rounded-xl text-sm outline-none font-mono">
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Número de Referencia</label>
+                            <input type="text" name="reference_number" placeholder="Ej. REF-764701" class="w-full p-2.5 border rounded-xl text-sm outline-none font-mono">
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Almacenamiento</label>
                             <input type="text" name="storage_condition" placeholder="Temp. Ambiente / Frio" class="w-full p-2.5 border rounded-xl text-sm outline-none">
                         </div>
                     </div>
-                    <div class="grid grid-cols-2 gap-2">
+                    <div class="grid grid-cols-3 gap-2">
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Lote</label>
-                            <input type="text" name="lote" placeholder="LOTE-2026-X" class="w-full p-2.5 border rounded-xl text-sm outline-none">
+                            <label class="block text-[11px] font-bold text-slate-600 uppercase mb-1">Lote</label>
+                            <input type="text" name="lote" placeholder="LOTE-X" class="w-full p-2.5 border rounded-xl text-sm outline-none">
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Fecha Caducidad</label>
+                            <label class="block text-[11px] font-bold text-slate-600 uppercase mb-1">F. Apertura</label>
+                            <input type="date" name="fecha_apertura" class="w-full p-2.5 border rounded-xl text-sm outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-600 uppercase mb-1">F. Término</label>
                             <input type="date" name="caducidad" class="w-full p-2.5 border rounded-xl text-sm outline-none">
                         </div>
                     </div>
@@ -941,15 +952,16 @@ HTML_TEMPLATE = """<!DOCTYPE html>
             }
         }
 
-        function openEditItemModal(id, code, name, category, cas, storage, etiq, lote, cad, gen, est) {
+        function openEditItemModal(id, code, name, category, reference, storage, etiq, lote, apertura, cad, gen, est) {
             document.getElementById('modal_item_id').value = id;
             document.getElementById('modal_code').value = code;
             document.getElementById('modal_name').value = name;
             document.getElementById('modal_category').value = category;
-            document.getElementById('modal_cas').value = cas;
+            document.getElementById('modal_reference').value = reference;
             document.getElementById('modal_storage').value = storage;
             document.getElementById('modal_etiqueta').value = etiq;
             document.getElementById('modal_lote').value = lote;
+            document.getElementById('modal_apertura').value = apertura;
             document.getElementById('modal_caducidad').value = cad;
             document.getElementById('modal_stock_general').value = gen;
             document.getElementById('modal_stock_estacion').value = est;
@@ -1114,10 +1126,11 @@ def update_item():
         item.code = request.form.get("code", item.code).strip().upper()
         item.name = request.form.get("name", item.name).strip()
         item.category = request.form.get("category", item.category)
-        item.cas_number = request.form.get("cas_number", item.cas_number).strip()
+        item.reference_number = request.form.get("reference_number", item.reference_number).strip()
         item.storage_condition = request.form.get("storage_condition", item.storage_condition).strip()
         item.etiqueta = request.form.get("etiqueta", item.etiqueta)
         item.lote = request.form.get("lote", item.lote).strip()
+        item.fecha_apertura = request.form.get("fecha_apertura", item.fecha_apertura).strip()
         item.caducidad = request.form.get("caducidad", item.caducidad).strip()
         item.stock_general = int(request.form.get("stock_general", item.stock_general))
         item.stock_estacion = int(request.form.get("stock_estacion", item.stock_estacion))
@@ -1306,9 +1319,10 @@ def add_item():
     code = request.form.get("code", "").strip().upper()
     name = request.form.get("name", "").strip()
     category = request.form.get("category")
-    cas_number = request.form.get("cas_number", "").strip()
+    reference_number = request.form.get("reference_number", "").strip()
     storage_condition = request.form.get("storage_condition", "").strip()
     lote = request.form.get("lote", "").strip()
+    fecha_apertura = request.form.get("fecha_apertura", "").strip()
     caducidad = request.form.get("caducidad", "").strip()
     etiqueta = request.form.get("etiqueta", "General")
     unit = request.form.get("unit", "pza").strip()
@@ -1319,9 +1333,11 @@ def add_item():
             code=code, 
             name=name, 
             category=category, 
-            cas_number=cas_number,
+            reference_number=reference_number,
             storage_condition=storage_condition,
             lote=lote,
+            fecha_entrada=get_local_now(),
+            fecha_apertura=fecha_apertura,
             caducidad=caducidad,
             etiqueta=etiqueta,
             unit=unit, 
@@ -1355,9 +1371,9 @@ def seed_database():
 
         if Item.query.count() == 0:
             items_list = [
-                Item(code="REQ-001", name="Ácido Clorhídrico 37%", category="Reactivo Químico", cas_number="7647-01-0", storage_condition="Temperatura Ambiente", lote="LOT-A991", caducidad="2028-05-30", etiqueta="Corrosivo", stock_general=25, stock_estacion=5),
-                Item(code="REQ-002", name="Etanol Absoluto", category="Reactivo Químico", cas_number="64-17-5", storage_condition="Área de Inflamables", lote="LOT-B102", caducidad="2027-10-15", etiqueta="Inflamable", stock_general=50, stock_estacion=10),
-                Item(code="MAT-001", name="Matraz Erlenmeyer 250ml", category="Material de Vidrio", cas_number="", storage_condition="Anaquel Vidriería", lote="S/L", caducidad="", etiqueta="General", stock_general=30, stock_estacion=8)
+                Item(code="REQ-001", name="Ácido Clorhídrico 37%", category="Reactivo Químico", reference_number="REF-764701", storage_condition="Temperatura Ambiente", lote="LOT-A991", fecha_apertura="2026-03-01", caducidad="2028-05-30", etiqueta="Corrosivo", stock_general=25, stock_estacion=5),
+                Item(code="REQ-002", name="Etanol Absoluto", category="Reactivo Químico", reference_number="REF-641705", storage_condition="Área de Inflamables", lote="LOT-B102", fecha_apertura="2026-03-10", caducidad="2027-10-15", etiqueta="Inflamable", stock_general=50, stock_estacion=10),
+                Item(code="MAT-001", name="Matraz Erlenmeyer 250ml", category="Material de Vidrio", reference_number="REF-MAT250", storage_condition="Anaquel Vidriería", lote="S/L", fecha_apertura="", caducidad="", etiqueta="General", stock_general=30, stock_estacion=8)
             ]
             db.session.add_all(items_list)
 
