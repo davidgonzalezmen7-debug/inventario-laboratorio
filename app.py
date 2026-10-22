@@ -1,8 +1,8 @@
 import os
 from datetime import datetime, date, timedelta, timezone
+import json
 from flask import Flask, render_template_string, request, redirect, url_for, flash
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import text
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "lab_secret_key_123")
@@ -13,7 +13,7 @@ LOCAL_TZ = timezone(timedelta(hours=-6))
 def get_local_now():
     return datetime.now(LOCAL_TZ).replace(tzinfo=None)
 
-# Configuración de Base de Datos PostgreSQL (Render) / SQLite (Local)
+# Configuración de Base de Datos PostgreSQL / SQLite
 db_url = os.environ.get("DATABASE_URL", "sqlite:///laboratorio.db")
 if db_url.startswith("postgres://"):
     db_url = db_url.replace("postgres://", "postgresql+psycopg2://", 1)
@@ -26,7 +26,7 @@ app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 db = SQLAlchemy(app)
 
 # -----------------------------------------------------------------------------
-# MODELOS DE BASE DE DATOS
+# MODELOS DE BASE DE DATOS (LABORATORIO)
 # -----------------------------------------------------------------------------
 
 class User(db.Model):
@@ -35,33 +35,34 @@ class User(db.Model):
     role = db.Column(db.String(50), nullable=False)
     pin = db.Column(db.String(20), nullable=False)
 
+class Project(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(150), unique=True, nullable=False)
+
 class Item(db.Model):
     id = db.Column(db.Integer, primary_key=True)
-    code = db.Column(db.String(50), nullable=False, unique=False)
+    code = db.Column(db.String(50), nullable=False)
     name = db.Column(db.String(150), nullable=False)
-    cas_number = db.Column(db.String(50), nullable=True)
-    category = db.Column(db.String(50), nullable=False)
-    purity = db.Column(db.String(50), nullable=True)
-    physical_state = db.Column(db.String(30), nullable=True)
-    storage_condition = db.Column(db.String(50), default="Temperatura Ambiente")
-    hazard_label = db.Column(db.String(50), default="Ninguno")
-    location = db.Column(db.String(100), nullable=True)
+    category = db.Column(db.String(50), nullable=False) # Reactivo, Material de Vidrio, Consumible
+    cas_number = db.Column(db.String(50), nullable=True) # No. CAS para químicos
+    storage_condition = db.Column(db.String(50), nullable=True) # Temp. Ambiente, Refrigeración, Congelación
     lote = db.Column(db.String(50), nullable=True)
     caducidad = db.Column(db.String(20), nullable=True)
-    stock_general = db.Column(db.Float, default=0.0)
-    unit = db.Column(db.String(20), default="g")
+    etiqueta = db.Column(db.String(50), default="General") # Inflamable, Tóxico, Corrosivo, etc.
+    stock_general = db.Column(db.Integer, default=0)
+    stock_estacion = db.Column(db.Integer, default=0) # Stock en estaciones de trabajo / mesas
+    unit = db.Column(db.String(20), default="pza")
 
 class Movement(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     timestamp = db.Column(db.DateTime, default=get_local_now)
     item_code = db.Column(db.String(50), nullable=False)
     item_name = db.Column(db.String(150), nullable=False)
-    type = db.Column(db.String(50), nullable=False)
-    quantity = db.Column(db.Float, nullable=False)
+    type = db.Column(db.String(50), nullable=False) # Salida a Proyecto, Traspaso a Estación, Entrada
+    quantity = db.Column(db.Integer, nullable=False)
     warehouse = db.Column(db.String(50), nullable=False)
-    service = db.Column(db.String(100), nullable=True)
-    patient_name = db.Column(db.String(150), nullable=True)
-    patient_id = db.Column(db.String(50), nullable=True)
+    service = db.Column(db.String(100), nullable=True) # Área o Laboratorio
+    project_name = db.Column(db.String(150), nullable=True)
     user_name = db.Column(db.String(100), nullable=False)
     notes = db.Column(db.String(200), nullable=True)
 
@@ -69,13 +70,13 @@ class CleaningLog(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     timestamp = db.Column(db.DateTime, default=get_local_now)
     user_name = db.Column(db.String(100), nullable=False)
-    campanas = db.Column(db.Boolean, default=False)
-    superficies = db.Column(db.Boolean, default=False)
-    residuos = db.Column(db.Boolean, default=False)
+    campana_extraccion = db.Column(db.Boolean, default=False)
+    mesas_trabajo = db.Column(db.Boolean, default=False)
+    reactivos_residuos = db.Column(db.Boolean, default=False)
     notes = db.Column(db.String(250), nullable=True)
 
 # -----------------------------------------------------------------------------
-# PLANTILLA HTML INTEGRADA
+# PLANTILLA HTML INTEGRADA (DISEÑO MODERNO)
 # -----------------------------------------------------------------------------
 
 HTML_TEMPLATE = """<!DOCTYPE html>
@@ -83,7 +84,7 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LabControl - Sistema de Inventario Analítico</title>
+    <title>Plataforma de Laboratorio - Control de Reactivos e Insumos</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
     <style>
@@ -95,35 +96,35 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </style>
 </head>
 <body class="bg-slate-100 min-h-screen text-slate-800 font-sans">
-    <header class="bg-gradient-to-r from-teal-900 via-emerald-900 to-slate-900 text-white shadow-lg sticky top-0 z-40">
+    <header class="bg-gradient-to-r from-cyan-950 via-slate-900 to-indigo-950 text-white shadow-lg sticky top-0 z-40">
         <div class="max-w-7xl mx-auto px-4 py-3 flex flex-col md:flex-row justify-between items-center gap-4">
             <div class="flex items-center gap-3">
-                <div class="bg-teal-600 p-2.5 rounded-xl shadow-inner">
-                    <i class="fa-solid fa-vial-circle-check text-2xl text-white"></i>
+                <div class="bg-cyan-600 p-2.5 rounded-xl shadow-inner">
+                    <i class="fa-solid fa-flask-vial text-2xl text-white"></i>
                 </div>
                 <div>
-                    <h1 class="text-xl font-extrabold tracking-tight">LabControl Pro</h1>
-                    <p class="text-[11px] text-teal-200">Sistema Integral de Reactivos, CAS & Calidad Analítica</p>
+                    <h1 class="text-xl font-extrabold tracking-tight">Laboratorio Científico</h1>
+                    <p class="text-[11px] text-cyan-200">Gestión de Reactivos, Materiales & Bitácoras</p>
                 </div>
             </div>
             <nav class="flex flex-wrap gap-1 text-xs font-bold">
-                <a href="/terminal" class="px-3 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'terminal' %}bg-teal-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-teal-100{% endif %}">
-                    <i class="fa-solid fa-pen-to-square"></i> Consumo / Ensayos
+                <a href="/terminal" class="px-2.5 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'terminal' %}bg-cyan-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-cyan-100{% endif %}">
+                    <i class="fa-solid fa-file-invoice"></i> Salida / Consumo
                 </a>
-                <a href="/alta_insumos" class="px-3 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'alta_insumos' %}bg-emerald-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-emerald-100{% endif %}">
-                    <i class="fa-solid fa-plus-circle"></i> Alta Reactivo
+                <a href="/alta_insumos" class="px-2.5 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'alta_insumos' %}bg-emerald-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-emerald-100{% endif %}">
+                    <i class="fa-solid fa-circle-plus"></i> Alta Reactivos
                 </a>
-                <a href="/inventario" class="px-3 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'inventario' %}bg-teal-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-teal-100{% endif %}">
+                <a href="/inventario" class="px-2.5 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'inventario' %}bg-cyan-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-cyan-100{% endif %}">
                     <i class="fa-solid fa-boxes-stacked"></i> Inventario
                 </a>
-                <a href="/limpieza" class="px-3 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'limpieza' %}bg-cyan-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-cyan-100{% endif %}">
-                    <i class="fa-solid fa-broom"></i> Bitácora Área
+                <a href="/limpieza" class="px-2.5 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'limpieza' %}bg-teal-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-teal-100{% endif %}">
+                    <i class="fa-solid fa-broom"></i> Rol de Limpieza
                 </a>
-                <a href="/bitacora" class="px-3 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'bitacora' %}bg-teal-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-teal-100{% endif %}">
-                    <i class="fa-solid fa-clock-rotate-left"></i> Historial
+                <a href="/bitacora" class="px-2.5 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'bitacora' %}bg-cyan-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-cyan-100{% endif %}">
+                    <i class="fa-solid fa-clock-rotate-left"></i> Bitácora
                 </a>
-                <a href="/usuarios" class="px-3 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'usuarios' %}bg-teal-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-teal-100{% endif %}">
-                    <i class="fa-solid fa-lock"></i> Personal
+                <a href="/usuarios" class="px-2.5 py-2 rounded-xl transition flex items-center gap-1.5 {% if view == 'usuarios' %}bg-cyan-600 text-white shadow{% else %}bg-white/10 hover:bg-white/20 text-cyan-100{% endif %}">
+                    <i class="fa-solid fa-users-gear"></i> Usuarios
                 </a>
             </nav>
         </div>
@@ -141,112 +142,319 @@ HTML_TEMPLATE = """<!DOCTYPE html>
           {% endif %}
         {% endwith %}
 
+        <datalist id="projects_datalist">
+            {% for p in projects %}
+                <option value="{{ p.name }}">
+            {% endfor %}
+        </datalist>
+
         {% if view == 'terminal' %}
-        <div class="space-y-6 max-w-4xl mx-auto">
+        <div class="space-y-6 max-w-5xl mx-auto">
+            <!-- Selección de Investigador / Personal -->
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                 <div class="mb-4">
                     <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
-                        <i class="fa-solid fa-user-gear text-teal-600"></i> Seleccionar Analista Responsable
+                        <i class="fa-solid fa-user-scientist text-cyan-600"></i> Investigador / Personal Responsable
                     </h2>
-                    <p class="text-xs text-slate-500">Haga clic sobre su nombre para cargarlo en el formulario.</p>
+                    <p class="text-xs text-slate-500">Haga clic sobre su nombre para seleccionarlo.</p>
                 </div>
-                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                     {% for u in users %}
-                    <button type="button" onclick="selectUser('{{ u.id }}')" class="p-3.5 rounded-xl border border-slate-200 bg-slate-50 hover:bg-teal-50 hover:border-teal-400 transition text-center group flex flex-col items-center">
-                        <div class="w-10 h-10 rounded-full bg-teal-100 text-teal-600 flex items-center justify-center text-lg mb-2 group-hover:scale-110 transition">
-                            <i class="fa-solid {% if 'Admin' in u.role %}fa-user-shield{% else %}fa-flask{% endif %}"></i>
+                    <button type="button" onclick="selectUser('{{ u.id }}')" class="p-3 rounded-xl border border-slate-200 bg-slate-50 hover:bg-cyan-50 hover:border-cyan-400 transition text-center group flex flex-col items-center">
+                        <div class="w-9 h-9 rounded-full bg-cyan-100 text-cyan-600 flex items-center justify-center text-sm mb-1.5 group-hover:scale-110 transition">
+                            <i class="fa-solid {% if 'Admin' in u.role %}fa-user-shield{% else %}fa-user-graduate{% endif %}"></i>
                         </div>
-                        <h4 class="font-bold text-slate-800 text-xs group-hover:text-teal-600 truncate w-full">{{ u.name }}</h4>
-                        <span class="text-[10px] text-slate-500 mt-0.5">{{ u.role }}</span>
+                        <h4 class="font-bold text-slate-800 text-xs group-hover:text-cyan-600 truncate w-full">{{ u.name }}</h4>
+                        <span class="text-[10px] text-slate-500">{{ u.role }}</span>
                     </button>
                     {% endfor %}
                 </div>
             </div>
 
-            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-                <h2 class="text-base font-bold text-slate-900 mb-4 border-b pb-2 flex items-center gap-2">
-                    <i class="fa-solid fa-flask-vial text-teal-600"></i> Registrar Consumo / Entrada de Reactivo
-                </h2>
+            <!-- Formulario de Movimientos y Consumo -->
+            <form action="/register_batch" method="POST" onsubmit="return validateBatchForm()" class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 space-y-6">
+                <input type="hidden" name="cart_data" id="cart_data_input">
 
-                <form action="/register" method="POST" class="space-y-4">
+                <div class="border-b pb-4 flex justify-between items-center">
+                    <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
+                        <i class="fa-solid fa-clipboard-list text-cyan-600"></i> Registro de Consumo / Salida para Proyecto
+                    </h2>
+                    <span class="text-xs font-bold bg-cyan-100 text-cyan-800 px-3 py-1 rounded-full">
+                        Multicarga Activa
+                    </span>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-cyan-50/50 p-4 rounded-xl border border-cyan-100">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 uppercase mb-1">Usuario Responsable</label>
+                        <select name="user_id" id="userSelect" required class="w-full p-2.5 border rounded-xl text-sm bg-white focus:ring-2 focus:ring-cyan-500 outline-none">
+                            <option value="">Seleccione Usuario...</option>
+                            {% for u in users %}
+                                <option value="{{ u.id }}">{{ u.name }} ({{ u.role }})</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-700 uppercase mb-1">PIN / Contraseña</label>
+                        <input type="password" name="pin" required placeholder="PIN de Seguridad" class="w-full p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-cyan-500 outline-none">
+                    </div>
+                </div>
+
+                <div class="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+                    <h3 class="text-xs font-bold text-cyan-900 uppercase flex items-center gap-1.5">
+                        <i class="fa-solid fa-diagram-project"></i> Detalles del Proyecto / Destino
+                    </h3>
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Analista Responsable</label>
-                            <select name="user_id" id="userSelect" required class="w-full p-2.5 border rounded-xl text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none">
-                                <option value="">Seleccione Analista...</option>
-                                {% for u in users %}
-                                    <option value="{{ u.id }}">{{ u.name }} ({{ u.role }})</option>
+                            <label class="block text-[11px] font-semibold text-slate-600 mb-1">Nombre del Proyecto / Experimento</label>
+                            <input type="text" list="projects_datalist" name="project_name" id="project_name" placeholder="Ej. Síntesis Orgánica Fase II" class="w-full p-2 border rounded-lg text-xs focus:ring-2 focus:ring-cyan-500 outline-none bg-white font-medium">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-semibold text-slate-600 mb-1">Laboratorio / Estación</label>
+                            <input type="text" name="service" placeholder="Ej. Lab Química H-302" class="w-full p-2 border rounded-lg text-xs focus:ring-2 focus:ring-cyan-500 outline-none bg-white">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="p-4 bg-indigo-50/40 rounded-xl border border-indigo-100 space-y-3">
+                    <h3 class="text-xs font-bold text-indigo-900 uppercase flex items-center gap-1.5">
+                        <i class="fa-solid fa-plus-circle"></i> Agregar Reactivos o Materiales
+                    </h3>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
+                        <div class="md:col-span-5">
+                            <label class="block text-[11px] font-semibold text-slate-600 mb-1">Reactivo / Insumo</label>
+                            <input list="items_list" id="temp_item" placeholder="Buscar por código, nombre, CAS..." class="w-full p-2 border rounded-lg text-xs focus:ring-2 focus:ring-cyan-500 outline-none bg-white font-medium">
+                            <datalist id="items_list">
+                                {% for item in items %}
+                                    <option value="[ID:{{ item.id }}] {{ item.code }} - {{ item.name }} (CAS: {{ item.cas_number or 'N/A' }})">Alm: {{ item.stock_general }} | Est: {{ item.stock_estacion }} | {{ item.etiqueta }}</option>
                                 {% endfor %}
+                            </datalist>
+                        </div>
+                        <div class="md:col-span-2">
+                            <label class="block text-[11px] font-semibold text-slate-600 mb-1">Acción</label>
+                            <select id="temp_type" class="w-full p-2 border rounded-lg text-xs bg-white outline-none">
+                                <option value="Salida">Consumo / Salida</option>
+                                <option value="Traspaso Estacion">Traspaso a Estación</option>
+                                <option value="Entrada">Entrada (Reposición)</option>
                             </select>
                         </div>
-                        <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">PIN / Contraseña</label>
-                            <input type="password" name="pin" required placeholder="PIN de Seguridad" class="w-full p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-teal-500 outline-none">
+                        <div class="md:col-span-2">
+                            <label class="block text-[11px] font-semibold text-slate-600 mb-1">Ubicación</label>
+                            <select id="temp_warehouse" class="w-full p-2 border rounded-lg text-xs bg-white outline-none">
+                                <option value="Almacén General">Almacén General</option>
+                                <option value="Estación de Trabajo">Estación de Trabajo</option>
+                            </select>
+                        </div>
+                        <div class="md:col-span-1">
+                            <label class="block text-[11px] font-semibold text-slate-600 mb-1">Cant.</label>
+                            <input type="number" min="1" id="temp_quantity" value="1" class="w-full p-2 border rounded-lg text-xs focus:ring-2 focus:ring-cyan-500 outline-none text-center font-bold">
+                        </div>
+                        <div class="md:col-span-2">
+                            <button type="button" onclick="addToCart()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-3 rounded-lg text-xs transition flex items-center justify-center gap-1 shadow-sm">
+                                <i class="fa-solid fa-cart-plus"></i> Agregar
+                            </button>
                         </div>
                     </div>
+                </div>
 
+                <div>
+                    <h3 class="text-xs font-bold text-slate-700 uppercase mb-2 flex items-center justify-between">
+                        <span><i class="fa-solid fa-list-check text-cyan-600"></i> Ítems en la Lista</span>
+                        <span id="cartCountBadge" class="text-[11px] font-semibold bg-slate-200 text-slate-700 px-2 py-0.5 rounded-full">0 ítems</span>
+                    </h3>
+
+                    <div class="overflow-x-auto border rounded-xl">
+                        <table class="w-full text-xs text-left text-slate-600" id="cartTable">
+                            <thead class="text-xs text-slate-500 uppercase bg-slate-50 border-b">
+                                <tr>
+                                    <th class="p-2.5">Descripción / Reactivo</th>
+                                    <th class="p-2.5">Tipo</th>
+                                    <th class="p-2.5">Ubicación</th>
+                                    <th class="p-2.5 text-center">Cantidad</th>
+                                    <th class="p-2.5 text-center">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody id="cartTableBody" class="divide-y divide-slate-100">
+                                <tr>
+                                    <td colspan="5" class="p-6 text-center text-slate-400 italic">
+                                        No hay elementos agregados.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Notas u Observaciones del Experimento</label>
+                    <input type="text" name="notes" placeholder="Observaciones..." class="w-full p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-cyan-500 outline-none">
+                </div>
+
+                <button type="submit" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3.5 rounded-xl shadow-md transition duration-200 flex items-center justify-center gap-2 text-sm">
+                    <i class="fa-solid fa-check-double"></i> Registrar Operación Completa
+                </button>
+            </form>
+        </div>
+
+        {% elif view == 'inventario' %}
+        <div class="space-y-6">
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                <div class="flex flex-col md:flex-row justify-between items-center gap-4 mb-6 border-b pb-4">
                     <div>
-                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Reactivo / Estándar (Buscador por Código / CAS)</label>
-                        <input list="items_list" name="item_search" required placeholder="Escriba o escanee código, CAS o nombre..." class="w-full p-2.5 border rounded-xl text-sm bg-teal-50 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none font-medium">
-                        <datalist id="items_list">
+                        <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+                            <i class="fa-solid fa-boxes-stacked text-cyan-600"></i> Inventario de Reactivos y Materiales
+                        </h2>
+                        <p class="text-xs text-slate-500">Control de números CAS, etiquetas de seguridad y almacenamiento.</p>
+                    </div>
+                    <div class="w-full md:w-80 relative">
+                        <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-slate-400 text-sm"></i>
+                        <input type="text" id="inventorySearch" onkeyup="filterInventory()" placeholder="Buscar por código, CAS, nombre..." class="w-full pl-10 pr-4 py-2 border rounded-xl text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-cyan-500 outline-none font-medium">
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left text-slate-600" id="inventoryTable">
+                        <thead class="text-xs text-slate-500 uppercase bg-slate-50 border-b">
+                            <tr>
+                                <th class="p-3">Código / CAS</th>
+                                <th class="p-3">Nombre / Descripción</th>
+                                <th class="p-3">Categoría / Almacenamiento</th>
+                                <th class="p-3">Peligro / Etiqueta</th>
+                                <th class="p-3">Lote / Caducidad</th>
+                                <th class="p-3 text-center">Almacén</th>
+                                <th class="p-3 text-center">Estación</th>
+                                <th class="p-3 text-center">Acciones Admin</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
                             {% for item in items %}
-                                <option value="[ID:{{ item.id }}] {{ item.code }} - {{ item.name }} (CAS: {{ item.cas_number or 'N/A' }} | Lote: {{ item.lote or 'S/L' }})">Stock: {{ item.stock_general }} {{ item.unit }} | {{ item.hazard_label }}</option>
+                            <tr class="hover:bg-slate-50 transition inventory-row">
+                                <td class="p-3 font-mono text-xs font-bold text-cyan-900">
+                                    {{ item.code }}
+                                    <span class="block text-[10px] text-slate-500">CAS: {{ item.cas_number or 'N/A' }}</span>
+                                </td>
+                                <td class="p-3 font-bold text-slate-900">
+                                    {{ item.name }}
+                                </td>
+                                <td class="p-3 text-xs">
+                                    <span class="px-2.5 py-0.5 rounded-full font-medium bg-slate-100 text-slate-700">
+                                        {{ item.category }}
+                                    </span>
+                                    <span class="block text-[10px] text-slate-500 mt-1">Temp: {{ item.storage_condition or 'Ambiente' }}</span>
+                                </td>
+                                <td class="p-3">
+                                    {% if item.etiqueta == 'Inflamable' %}
+                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800">🔥 Inflamable</span>
+                                    {% elif item.etiqueta == 'Tóxico' %}
+                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800">☠️ Tóxico</span>
+                                    {% elif item.etiqueta == 'Corrosivo' %}
+                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800">🧪 Corrosivo</span>
+                                    {% else %}
+                                        <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800">🟢 General</span>
+                                    {% endif %}
+                                </td>
+                                <td class="p-3 text-xs text-slate-600">
+                                    <span class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded">Lote: {{ item.lote or 'S/L' }}</span>
+                                    <span class="block text-[10px] text-slate-400 mt-0.5">Cad: {{ item.caducidad or 'S/F' }}</span>
+                                </td>
+                                <td class="p-3 text-center font-bold text-emerald-800">{{ item.stock_general }} {{ item.unit }}</td>
+                                <td class="p-3 text-center font-bold text-cyan-800">{{ item.stock_estacion }} {{ item.unit }}</td>
+                                <td class="p-3 text-center">
+                                    <button onclick="openEditItemModal('{{ item.id }}', '{{ item.code }}', '{{ item.name }}', '{{ item.category }}', '{{ item.cas_number or '' }}', '{{ item.storage_condition or '' }}', '{{ item.etiqueta or 'General' }}', '{{ item.lote or '' }}', '{{ item.caducidad or '' }}', '{{ item.stock_general }}', '{{ item.stock_estacion }}')" class="px-2.5 py-1 bg-amber-100 hover:bg-amber-200 text-amber-800 font-bold rounded-lg text-xs transition flex items-center gap-1 mx-auto">
+                                        <i class="fa-solid fa-lock text-amber-600"></i> Modificar
+                                    </button>
+                                </td>
+                            </tr>
                             {% endfor %}
-                        </datalist>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL DE EDICIÓN DE INVENTARIO CON PIN DE ADMIN -->
+        <div id="editModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl max-w-lg w-full p-6 shadow-xl border space-y-4 max-h-[90vh] overflow-y-auto">
+                <div class="flex justify-between items-center border-b pb-2">
+                    <h3 class="font-bold text-slate-900 text-base" id="modalItemTitle">Modificar Reactivo / Insumo</h3>
+                    <button onclick="closeModal()" class="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+                </div>
+                
+                <form action="/update_item" method="POST" class="space-y-3">
+                    <input type="hidden" name="item_id" id="modal_item_id">
+
+                    <div class="bg-amber-50 p-3 rounded-xl border border-amber-200 text-xs">
+                        <label class="block font-bold text-amber-900 uppercase mb-1"><i class="fa-solid fa-shield-halved"></i> PIN del Administrador (Requerido)</label>
+                        <input type="password" name="admin_pin" required placeholder="PIN de Administrador" class="w-full p-2 border rounded-lg text-center font-bold tracking-widest text-sm outline-none bg-white">
                     </div>
 
                     <div class="grid grid-cols-2 gap-3">
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Tipo de Operación</label>
-                            <select name="type" required class="w-full p-2.5 border rounded-xl text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none">
-                                <option value="Salida">Consumo en Ensayo / Análisis</option>
-                                <option value="Entrada">Entrada (Nueva Compra)</option>
-                                <option value="Baja / Residuo">Baja por Caducidad / Merma</option>
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Código</label>
+                            <input type="text" name="code" id="modal_code" required class="w-full p-2 border rounded-xl text-xs font-mono">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Nombre</label>
+                            <input type="text" name="name" id="modal_name" required class="w-full p-2 border rounded-xl text-xs font-bold">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Categoría</label>
+                            <select name="category" id="modal_category" required class="w-full p-2 border rounded-xl text-xs bg-slate-50">
+                                <option value="Reactivo Químico">Reactivo Químico</option>
+                                <option value="Material de Vidrio">Material de Vidrio</option>
+                                <option value="Consumible / EP">Consumible / EPP</option>
                             </select>
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Ubicación / Estación</label>
-                            <select name="warehouse" required class="w-full p-2.5 border rounded-xl text-sm bg-slate-50 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none">
-                                <option value="Almacén General">Almacén General de Reactivos</option>
-                                <option value="Laboratorio Principal">Laboratorio Principal</option>
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Etiqueta Peligro</label>
+                            <select name="etiqueta" id="modal_etiqueta" class="w-full p-2 border rounded-xl text-xs font-bold">
+                                <option value="General">🟢 General</option>
+                                <option value="Inflamable">🔥 Inflamable</option>
+                                <option value="Tóxico">☠️ Tóxico</option>
+                                <option value="Corrosivo">🧪 Corrosivo</option>
                             </select>
                         </div>
                     </div>
 
                     <div class="grid grid-cols-2 gap-3">
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Cantidad Utilizada / Ingresada</label>
-                            <input type="number" step="any" min="0.01" name="quantity" required value="1" class="w-full p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-teal-500 outline-none font-bold">
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Número CAS</label>
+                            <input type="text" name="cas_number" id="modal_cas" class="w-full p-2 border rounded-xl text-xs font-mono">
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Equipo / Campana</label>
-                            <input type="text" name="service" placeholder="Ej. Campana 2 / HPLC-01" class="w-full p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-teal-500 outline-none">
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Almacenamiento</label>
+                            <input type="text" name="storage_condition" id="modal_storage" class="w-full p-2 border rounded-xl text-xs" placeholder="Ej. Refrigeración 4°C">
                         </div>
                     </div>
 
-                    <div class="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
-                        <h3 class="text-xs font-bold text-teal-900 uppercase flex items-center gap-1.5">
-                            <i class="fa-solid fa-vial"></i> Datos del Proyecto / Muestra
-                        </h3>
-                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <div>
-                                <label class="block text-[11px] font-semibold text-slate-600 mb-1">Nombre del Proyecto / Ensayo</label>
-                                <input type="text" name="patient_name" placeholder="Ej. Determinación de Pureza Lote 88" class="w-full p-2 border rounded-lg text-xs focus:ring-2 focus:ring-teal-500 outline-none bg-white font-medium">
-                            </div>
-                            <div>
-                                <label class="block text-[11px] font-semibold text-slate-600 mb-1">Código de Muestra</label>
-                                <input type="text" name="patient_id" placeholder="Ej. MUESTRA-2026-X" class="w-full p-2 border rounded-lg text-xs focus:ring-2 focus:ring-teal-500 outline-none bg-white">
-                            </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Lote</label>
+                            <input type="text" name="lote" id="modal_lote" class="w-full p-2 border rounded-xl text-xs font-medium">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Caducidad</label>
+                            <input type="date" name="caducidad" id="modal_caducidad" class="w-full p-2 border rounded-xl text-xs">
                         </div>
                     </div>
 
-                    <div>
-                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Notas u Observaciones</label>
-                        <input type="text" name="notes" placeholder="Observaciones adicionales..." class="w-full p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-teal-500 outline-none">
+                    <div class="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-xl border">
+                        <div>
+                            <label class="block text-xs font-bold text-emerald-800 uppercase mb-1">Stock Almacén</label>
+                            <input type="number" name="stock_general" id="modal_stock_general" required class="w-full p-2 border rounded-xl text-xs font-bold text-center">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-bold text-cyan-800 uppercase mb-1">Stock Estación</label>
+                            <input type="number" name="stock_estacion" id="modal_stock_estacion" required class="w-full p-2 border rounded-xl text-xs font-bold text-center">
+                        </div>
                     </div>
 
-                    <button type="submit" class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 rounded-xl shadow-md transition duration-200 flex items-center justify-center gap-2">
-                        <i class="fa-solid fa-check"></i> Guardar Registro Analítico
+                    <button type="submit" class="w-full bg-amber-600 hover:bg-amber-700 text-white font-bold py-2.5 rounded-xl transition shadow">
+                        Autorizar y Guardar Cambios
                     </button>
                 </form>
             </div>
@@ -256,200 +464,153 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         <div class="space-y-6 max-w-xl mx-auto">
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
                 <h2 class="text-base font-bold text-slate-900 mb-4 border-b pb-2 flex items-center gap-2">
-                    <i class="fa-solid fa-plus-circle text-emerald-600"></i> Registrar Nuevo Reactivo / Material
+                    <i class="fa-solid fa-circle-plus text-emerald-600"></i> Registrar Nuevo Reactivo o Material
                 </h2>
 
                 <form action="/add_item" method="POST" class="space-y-3">
-                    <div class="grid grid-cols-2 gap-2">
-                        <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Código / SKU</label>
-                            <input type="text" name="code" required placeholder="Ej. REQ-005" class="w-full p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 outline-none font-mono">
-                        </div>
-                        <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Número CAS</label>
-                            <input type="text" name="cas_number" placeholder="Ej. 64-17-5" class="w-full p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 outline-none font-mono">
-                        </div>
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Código / Clave</label>
+                        <input type="text" name="code" required placeholder="Ej. REQ-001" class="w-full p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 outline-none font-mono">
                     </div>
                     <div>
-                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Nombre del Reactivo / Sustancia</label>
-                        <input type="text" name="name" required placeholder="Ej. Acetona ACS 99.5%" class="w-full p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 outline-none font-bold">
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Nombre / Descripción</label>
+                        <input type="text" name="name" required placeholder="Ej. Ácido Clorhídrico 37%" class="w-full p-2.5 border rounded-xl text-sm focus:ring-2 focus:ring-emerald-500 outline-none">
                     </div>
                     <div class="grid grid-cols-2 gap-2">
                         <div>
                             <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Categoría</label>
-                            <select name="category" required class="w-full p-2.5 border rounded-xl text-sm bg-slate-50 focus:bg-white outline-none">
+                            <select name="category" required class="w-full p-2.5 border rounded-xl text-sm bg-slate-50 outline-none">
                                 <option value="Reactivo Químico">Reactivo Químico</option>
                                 <option value="Material de Vidrio">Material de Vidrio</option>
-                                <option value="Medio de Cultivo">Medio de Cultivo</option>
-                                <option value="Estándar Analítico">Estándar Analítico</option>
+                                <option value="Consumible / EP">Consumible / EPP</option>
                             </select>
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Pureza / Grado</label>
-                            <input type="text" name="purity" placeholder="Ej. 99.8% HPLC / ACS" class="w-full p-2.5 border rounded-xl text-sm outline-none">
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Etiqueta de Peligro</label>
+                            <select name="etiqueta" class="w-full p-2.5 border rounded-xl text-sm bg-amber-50 font-bold outline-none">
+                                <option value="General">🟢 General</option>
+                                <option value="Inflamable">🔥 Inflamable</option>
+                                <option value="Tóxico">☠️ Tóxico</option>
+                                <option value="Corrosivo">🧪 Corrosivo</option>
+                            </select>
                         </div>
                     </div>
                     <div class="grid grid-cols-2 gap-2">
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Estado Físico</label>
-                            <select name="physical_state" class="w-full p-2.5 border rounded-xl text-sm bg-slate-50 outline-none">
-                                <option value="Líquido">Líquido</option>
-                                <option value="Sólido / Polvo">Sólido / Polvo</option>
-                                <option value="Gas">Gas</option>
-                            </select>
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Número CAS</label>
+                            <input type="text" name="cas_number" placeholder="Ej. 7647-01-0" class="w-full p-2.5 border rounded-xl text-sm outline-none font-mono">
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Almacenamiento</label>
-                            <select name="storage_condition" class="w-full p-2.5 border rounded-xl text-sm bg-slate-50 outline-none font-bold">
-                                <option value="Temperatura Ambiente">Temperatura Ambiente</option>
-                                <option value="Refrigeración (4°C)">Refrigeración (4°C)</option>
-                                <option value="Congelación (-20°C)">Congelación (-20°C)</option>
-                                <option value="Campana Inflamables">Campana Inflamables</option>
-                            </select>
+                            <input type="text" name="storage_condition" placeholder="Temp. Ambiente / Frio" class="w-full p-2.5 border rounded-xl text-sm outline-none">
                         </div>
-                    </div>
-                    <div>
-                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Clasificación de Riesgo GHS</label>
-                        <select name="hazard_label" class="w-full p-2.5 border rounded-xl text-sm bg-rose-50 outline-none font-bold text-rose-900">
-                            <option value="Ninguno">🟢 Seguro / General</option>
-                            <option value="Inflamable">🔴 Inflamable</option>
-                            <option value="Corrosivo">🧪 Corrosivo</option>
-                            <option value="Tóxico / Nocivo">💀 Tóxico / Nocivo</option>
-                        </select>
                     </div>
                     <div class="grid grid-cols-2 gap-2">
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Ubicación Física</label>
-                            <input type="text" name="location" placeholder="Ej. Estante C-2" class="w-full p-2.5 border rounded-xl text-sm outline-none">
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Lote</label>
+                            <input type="text" name="lote" placeholder="LOTE-2026-X" class="w-full p-2.5 border rounded-xl text-sm outline-none">
                         </div>
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Lote</label>
-                            <input type="text" name="lote" placeholder="Ej. LOT-2026-X" class="w-full p-2.5 border rounded-xl text-sm outline-none">
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Fecha Caducidad</label>
+                            <input type="date" name="caducidad" class="w-full p-2.5 border rounded-xl text-sm outline-none">
                         </div>
                     </div>
-                    <div class="grid grid-cols-3 gap-2">
-                        <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Caducidad</label>
-                            <input type="date" name="caducidad" class="w-full p-2.5 border rounded-xl text-xs outline-none">
-                        </div>
+                    <div class="grid grid-cols-2 gap-2">
                         <div>
                             <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Unidad</label>
-                            <select name="unit" class="w-full p-2.5 border rounded-xl text-sm bg-slate-50 outline-none">
-                                <option value="ml">ml</option>
-                                <option value="g">g</option>
-                                <option value="L">L</option>
-                                <option value="kg">kg</option>
-                                <option value="pza">pza</option>
-                            </select>
+                            <input type="text" name="unit" required value="pza" class="w-full p-2.5 border rounded-xl text-sm outline-none">
                         </div>
                         <div>
                             <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Stock Inicial</label>
-                            <input type="number" step="any" min="0" name="stock_general" required value="500" class="w-full p-2.5 border rounded-xl text-sm outline-none font-bold">
+                            <input type="number" min="0" name="stock_general" required value="20" class="w-full p-2.5 border rounded-xl text-sm outline-none font-bold">
                         </div>
                     </div>
 
                     <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl shadow-md transition duration-200 flex items-center justify-center gap-2 mt-4">
-                        <i class="fa-solid fa-floppy-disk"></i> Registrar Reactivo
+                        <i class="fa-solid fa-box-archive"></i> Registrar Insumo
                     </button>
                 </form>
             </div>
         </div>
 
-        {% elif view == 'inventario' %}
-        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-            <div class="flex flex-col md:flex-row justify-between items-center gap-4 mb-6 border-b pb-4">
-                <div>
-                    <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
-                        <i class="fa-solid fa-boxes-stacked text-teal-600"></i> Stock General e Inventario Analítico
-                    </h2>
-                    <p class="text-xs text-slate-500">Alertas automáticas por vencimiento de reactivos y trazabilidad CAS.</p>
-                </div>
-                <div class="w-full md:w-80 relative">
-                    <i class="fa-solid fa-magnifying-glass absolute left-3.5 top-3 text-slate-400 text-sm"></i>
-                    <input type="text" id="inventorySearch" onkeyup="filterInventory()" placeholder="Buscar por código, nombre, CAS..." class="w-full pl-10 pr-4 py-2 border rounded-xl text-xs bg-slate-50 focus:bg-white focus:ring-2 focus:ring-teal-500 outline-none font-medium">
-                </div>
-            </div>
-
-            <div class="overflow-x-auto">
-                <table class="w-full text-sm text-left text-slate-600" id="inventoryTable">
-                    <thead class="text-xs text-slate-500 uppercase bg-slate-50 border-b">
-                        <tr>
-                            <th class="p-3">Código / CAS</th>
-                            <th class="p-3">Descripción / Pureza</th>
-                            <th class="p-3">Categoría</th>
-                            <th class="p-3">Riesgo (GHS)</th>
-                            <th class="p-3">Lote / Caducidad</th>
-                            <th class="p-3 text-center">Stock Disponible</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        {% for item in items %}
-                        <tr class="hover:bg-slate-50 transition inventory-row">
-                            <td class="p-3 font-mono text-xs font-bold text-teal-900">
-                                {{ item.code }}
-                                <span class="block text-[10px] text-slate-400 font-normal">CAS: {{ item.cas_number or 'N/A' }}</span>
-                            </td>
-                            <td class="p-3 font-bold text-slate-900">
-                                {{ item.name }}
-                                <span class="block text-[11px] text-slate-400 font-normal">Grado: {{ item.purity or 'N/E' }} | Ubic: {{ item.location or 'General' }}</span>
-                            </td>
-                            <td class="p-3">
-                                <span class="px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600">
-                                    {{ item.category }}
-                                </span>
-                            </td>
-                            <td class="p-3">
-                                {% if item.hazard_label == 'Inflamable' %}
-                                    <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-rose-100 text-rose-800 border border-rose-300">🔴 Inflamable</span>
-                                {% elif item.hazard_label == 'Corrosivo' %}
-                                    <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-amber-100 text-amber-800 border border-amber-300">🧪 Corrosivo</span>
-                                {% elif item.hazard_label == 'Tóxico / Nocivo' %}
-                                    <span class="px-2.5 py-1 rounded-full text-[10px] font-bold bg-purple-100 text-purple-800 border border-purple-300">💀 Tóxico</span>
-                                {% else %}
-                                    <span class="text-slate-400 text-xs">🟢 Seguro</span>
-                                {% endif %}
-                            </td>
-                            <td class="p-3 text-xs text-slate-600">
-                                <span class="font-bold text-slate-900 bg-slate-100 px-2 py-0.5 rounded">Lote: {{ item.lote or 'S/L' }}</span>
-                                <span class="block text-[10px] mt-1">
-                                    {% if item.caducidad and item.caducidad.strip() != '' %}
-                                        {% set cad_date = item.caducidad %}
-                                        {% if cad_date < today_str %}
-                                            <span class="px-2 py-0.5 bg-rose-200 text-rose-900 font-bold rounded flex items-center gap-1 w-fit"><i class="fa-solid fa-triangle-exclamation"></i> VENCIDO ({{ cad_date }})</span>
-                                        {% elif cad_date <= warning_str %}
-                                            <span class="px-2 py-0.5 bg-amber-200 text-amber-900 font-bold rounded flex items-center gap-1 w-fit"><i class="fa-solid fa-clock"></i> Próximo a vencer ({{ cad_date }})</span>
-                                        {% else %}
-                                            <span class="text-slate-500 font-mono">Cad: {{ cad_date }}</span>
-                                        {% endif %}
-                                    {% else %}
-                                        <span class="text-slate-400">Cad: S/F</span>
-                                    {% endif %}
-                                </span>
-                            </td>
-                            <td class="p-3 text-center">
-                                <span class="px-3 py-1 rounded-full text-xs font-bold {% if item.stock_general < 10 %}bg-rose-100 text-rose-700{% else %}bg-emerald-100 text-emerald-800{% endif %}">
-                                    {{ item.stock_general }} {{ item.unit }}
-                                </span>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
-
         {% elif view == 'limpieza' %}
         <div class="space-y-6">
+            <!-- HEADER DE ROL DE LIMPIEZA ROTATIVO -->
+            <div class="bg-gradient-to-r from-teal-900 to-slate-900 text-white p-6 rounded-2xl shadow-md border border-teal-800">
+                <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-2">
+                    <div>
+                        <h2 class="text-base font-bold flex items-center gap-2">
+                            <i class="fa-solid fa-calendar-check text-teal-400"></i> Rol Semanal de Mantenimiento de Laboratorio (Excluye Administrador)
+                        </h2>
+                        <p class="text-xs text-teal-200">Cada investigador operativo realiza una tarea asignada diariamente durante la semana. El turno se alterna automáticamente cada semana.</p>
+                    </div>
+                    <span class="bg-teal-600/80 text-white text-xs font-mono px-3 py-1.5 rounded-full font-bold">
+                        Semana {{ current_week }} / {{ current_year }} ({{ week_dates_current }})
+                    </span>
+                </div>
+            </div>
+
+            <!-- ASIGNACIÓN INDIVIDUAL POR USUARIO -->
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                <h3 class="text-base font-bold text-slate-900 mb-4 border-b pb-3 flex items-center gap-2">
+                    <i class="fa-solid fa-user-check text-teal-600"></i> Asignación de Tareas Semanales por Investigador
+                </h3>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    {% for item in user_roles_detail %}
+                    <div class="rounded-2xl border bg-slate-50/80 border-slate-200 p-5 flex flex-col justify-between space-y-4 hover:border-teal-400 transition shadow-sm">
+                        <div class="space-y-2">
+                            <div class="flex justify-between items-start">
+                                <div>
+                                    <h4 class="font-bold text-slate-900 text-sm flex items-center gap-1.5">
+                                        <i class="fa-solid fa-user text-teal-600 text-xs"></i>
+                                        {{ item.user.name }}
+                                    </h4>
+                                    <span class="text-[11px] text-slate-500 font-medium">{{ item.user.role }}</span>
+                                </div>
+                                <span class="bg-teal-100 text-teal-800 text-[10px] font-extrabold uppercase px-2.5 py-1 rounded-full border border-teal-200">
+                                    Activo Diario
+                                </span>
+                            </div>
+
+                            <div class="bg-gradient-to-r from-teal-500 to-emerald-600 text-white p-3.5 rounded-xl shadow-sm space-y-1">
+                                <span class="text-[10px] uppercase font-bold text-teal-100 block tracking-wider">
+                                    <i class="fa-solid fa-clipboard-list"></i> Tarea Asignada Esta Semana:
+                                </span>
+                                <p class="font-extrabold text-xs text-white">
+                                    {{ item.task_this_week }}
+                                </p>
+                            </div>
+                        </div>
+
+                        <div class="border-t border-slate-200 pt-3 text-xs space-y-1 text-slate-600">
+                            <div class="flex justify-between items-center text-[11px]">
+                                <span class="font-bold text-slate-700">Próxima Semana (Semana {{ current_week + 1 }}):</span>
+                            </div>
+                            <p class="text-[11px] font-semibold text-teal-800 bg-teal-50 px-2 py-1 rounded border border-teal-100">
+                                🔄 {{ item.task_next_week }}
+                            </p>
+                        </div>
+                    </div>
+                    {% else %}
+                    <div class="col-span-full text-center text-slate-400 p-6 italic">
+                        No hay personal operativo registrado.
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                <!-- FORMULARIO DE REGISTRO DIARIO DE MANTENIMIENTO -->
                 <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-1">
                     <h2 class="text-base font-bold text-slate-900 mb-4 border-b pb-2 flex items-center gap-2">
-                        <i class="fa-solid fa-broom text-cyan-600"></i> Mantenimiento y Sanitización
+                        <i class="fa-solid fa-broom text-teal-600"></i> Registrar Cumplimiento Diario
                     </h2>
 
                     <form action="/add_cleaning" method="POST" class="space-y-4">
                         <div class="grid grid-cols-2 gap-2">
                             <div>
-                                <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Analista</label>
+                                <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Personal</label>
                                 <select name="user_id" required class="w-full p-2.5 border rounded-xl text-xs bg-slate-50 outline-none">
                                     <option value="">Seleccione...</option>
                                     {% for u in users %}
@@ -463,45 +624,46 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                             </div>
                         </div>
 
-                        <div class="bg-cyan-50/60 p-4 rounded-xl border border-cyan-100 space-y-3">
-                            <h3 class="text-xs font-bold text-cyan-900 uppercase border-b border-cyan-200 pb-1">
-                                Verificación de Campanas y Mesadas
+                        <div class="bg-teal-50/60 p-4 rounded-xl border border-teal-100 space-y-3">
+                            <h3 class="text-xs font-bold text-teal-900 uppercase border-b border-teal-200 pb-1">
+                                Verificación de Áreas
                             </h3>
 
                             <label class="flex items-center gap-2.5 text-xs font-medium text-slate-700 cursor-pointer">
-                                <input type="checkbox" name="campanas" class="w-4 h-4 text-cyan-600 rounded">
+                                <input type="checkbox" name="campana_extraccion" class="w-4 h-4 text-teal-600 rounded">
                                 <span>💨 Sanitización Campana de Extracción</span>
                             </label>
 
                             <label class="flex items-center gap-2.5 text-xs font-medium text-slate-700 cursor-pointer">
-                                <input type="checkbox" name="superficies" class="w-4 h-4 text-cyan-600 rounded">
-                                <span>🧽 Limpieza de Mesadas de Análisis</span>
+                                <input type="checkbox" name="mesas_trabajo" class="w-4 h-4 text-teal-600 rounded">
+                                <span>🧫 Desinfección Mesas de Trabajo</span>
                             </label>
 
                             <label class="flex items-center gap-2.5 text-xs font-medium text-slate-700 cursor-pointer">
-                                <input type="checkbox" name="residuos" class="w-4 h-4 text-cyan-600 rounded">
-                                <span>♻️ Desecho de Residuos Peligrosos (RPBI/Químicos)</span>
+                                <input type="checkbox" name="reactivos_residuos" class="w-4 h-4 text-teal-600 rounded">
+                                <span>🧪 Revisión de Residuos y Reactivos</span>
                             </label>
                         </div>
 
                         <div>
-                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Notas</label>
-                            <input type="text" name="notes" placeholder="Ej. Se utilizó etanol al 70%..." class="w-full p-2.5 border rounded-xl text-xs outline-none">
+                            <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Notas u Observaciones</label>
+                            <input type="text" name="notes" placeholder="Ej. Campana operando con normalidad..." class="w-full p-2.5 border rounded-xl text-xs outline-none">
                         </div>
 
-                        <button type="submit" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3 rounded-xl shadow-md transition flex items-center justify-center gap-2">
-                            <i class="fa-solid fa-clipboard-check"></i> Registrar Mantenimiento
+                        <button type="submit" class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 rounded-xl shadow-md transition flex items-center justify-center gap-2">
+                            <i class="fa-solid fa-clipboard-check"></i> Guardar Registro Diario
                         </button>
                     </form>
                 </div>
 
+                <!-- TABLA HISTORIAL DE MANTENIMIENTO -->
                 <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-2">
                     <div class="flex justify-between items-center mb-4 border-b pb-3">
                         <h2 class="text-base font-bold text-slate-900 flex items-center gap-2">
-                            <i class="fa-solid fa-list-check text-cyan-600"></i> Histórico de Sanitización
+                            <i class="fa-solid fa-list-check text-teal-600"></i> Bitácora de Mantenimiento y Limpieza
                         </h2>
                         <button onclick="window.print()" class="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-xs font-bold no-print">
-                            <i class="fa-solid fa-print"></i> Imprimir
+                            <i class="fa-solid fa-print"></i> Imprimir Reporte
                         </button>
                     </div>
 
@@ -511,25 +673,25 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                                 <tr>
                                     <th class="p-2.5">Fecha/Hora</th>
                                     <th class="p-2.5">Responsable</th>
-                                    <th class="p-2.5 text-center">Campanas</th>
-                                    <th class="p-2.5 text-center">Mesadas</th>
+                                    <th class="p-2.5 text-center">Campana</th>
+                                    <th class="p-2.5 text-center">Mesas</th>
                                     <th class="p-2.5 text-center">Residuos</th>
                                 </tr>
                             </thead>
                             <tbody class="divide-y divide-slate-100">
                                 {% for log in cleaning_logs %}
                                 <tr class="hover:bg-slate-50">
-                                    <td class="p-2.5 font-mono text-slate-500">{{ log.timestamp.strftime('%d/%m/%Y %H:%M') }}</td>
+                                    <td class="p-2.5 font-mono text-slate-500">{{ log.timestamp.strftime('%d/%m/%Y %H:%M') if log.timestamp else '-' }}</td>
                                     <td class="p-2.5 font-bold text-slate-900">
                                         {{ log.user_name }}
                                         {% if log.notes %}<span class="block text-[10px] text-slate-400 font-normal">{{ log.notes }}</span>{% endif %}
                                     </td>
-                                    <td class="p-2.5 text-center">{% if log.campanas %}<span class="text-emerald-600 font-bold">✓</span>{% else %}-{% endif %}</td>
-                                    <td class="p-2.5 text-center">{% if log.superficies %}<span class="text-emerald-600 font-bold">✓</span>{% else %}-{% endif %}</td>
-                                    <td class="p-2.5 text-center">{% if log.residuos %}<span class="text-emerald-600 font-bold">✓</span>{% else %}-{% endif %}</td>
+                                    <td class="p-2.5 text-center">{% if log.campana_extraccion %}<span class="text-emerald-600 font-bold">✓</span>{% else %}-{% endif %}</td>
+                                    <td class="p-2.5 text-center">{% if log.mesas_trabajo %}<span class="text-emerald-600 font-bold">✓</span>{% else %}-{% endif %}</td>
+                                    <td class="p-2.5 text-center">{% if log.reactivos_residuos %}<span class="text-emerald-600 font-bold">✓</span>{% else %}-{% endif %}</td>
                                 </tr>
                                 {% else %}
-                                <tr><td colspan="5" class="p-6 text-center text-slate-400 italic">No hay actividades de mantenimiento registradas.</td></tr>
+                                <tr><td colspan="5" class="p-6 text-center text-slate-400 italic">No hay registros de mantenimiento.</td></tr>
                                 {% endfor %}
                             </tbody>
                         </table>
@@ -539,98 +701,132 @@ HTML_TEMPLATE = """<!DOCTYPE html>
         </div>
 
         {% elif view == 'bitacora' %}
-        <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
-            <div class="flex justify-between items-center mb-4 border-b pb-3">
-                <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
-                    <i class="fa-solid fa-clock-rotate-left text-teal-600"></i> Bitácora e Histórico de Auditoría
-                </h2>
-                <button onclick="window.print()" class="px-4 py-2 bg-slate-800 text-white rounded-xl text-xs font-bold no-print">
-                    <i class="fa-solid fa-print"></i> Imprimir Bitácora
-                </button>
-            </div>
+        <div class="space-y-6">
+            <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200">
+                <div class="mb-4 border-b pb-3 flex justify-between items-center">
+                    <div>
+                        <h2 class="text-lg font-bold text-slate-900 flex items-center gap-2">
+                            <i class="fa-solid fa-clock-rotate-left text-cyan-600"></i> Historial de Movimientos y Consumos
+                        </h2>
+                        <p class="text-xs text-slate-500">Modificaciones y reversiones requieren PIN de Administrador.</p>
+                    </div>
+                    <button onclick="window.print()" class="px-4 py-2 bg-slate-800 text-white font-bold rounded-xl text-xs">
+                        <i class="fa-solid fa-print"></i> Imprimir Bitácora
+                    </button>
+                </div>
 
-            <div class="overflow-x-auto">
-                <table class="w-full text-xs text-left text-slate-600">
-                    <thead class="text-xs text-slate-500 uppercase bg-slate-50 border-b">
-                        <tr>
-                            <th class="p-3">Fecha y Hora</th>
-                            <th class="p-3">Operación</th>
-                            <th class="p-3">Reactivo / Insumo</th>
-                            <th class="p-3 text-center">Cantidad</th>
-                            <th class="p-3">Proyecto / Ensayo</th>
-                            <th class="p-3">Responsable</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-slate-100">
-                        {% for mov in movements %}
-                        <tr class="hover:bg-slate-50">
-                            <td class="p-3 text-slate-500 font-mono">{{ mov.timestamp.strftime('%d/%m/%Y %H:%M') }}</td>
-                            <td class="p-3 font-bold">
-                                <span class="px-2.5 py-1 rounded-full text-[10px] uppercase {% if mov.type == 'Entrada' %}bg-emerald-100 text-emerald-800{% elif mov.type == 'Salida' %}bg-blue-100 text-blue-800{% else %}bg-rose-100 text-rose-800{% endif %}">
-                                    {{ mov.type }}
-                                </span>
-                            </td>
-                            <td class="p-3 font-bold text-slate-900">{{ mov.item_name }}</td>
-                            <td class="p-3 text-center font-bold text-sm">{{ mov.quantity }}</td>
-                            <td class="p-3 font-medium text-slate-800">{{ mov.patient_name or 'N/A' }}</td>
-                            <td class="p-3 text-teal-900 font-bold">{{ mov.user_name }}</td>
-                        </tr>
-                        {% else %}
-                        <tr><td colspan="6" class="p-8 text-center text-slate-400 italic">No hay movimientos registrados.</td></tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs text-left text-slate-600">
+                        <thead class="text-xs text-slate-500 uppercase bg-slate-50 border-b">
+                            <tr>
+                                <th class="p-3">Fecha y Hora</th>
+                                <th class="p-3">Tipo</th>
+                                <th class="p-3">Reactivo / Insumo</th>
+                                <th class="p-3 text-center">Cant.</th>
+                                <th class="p-3">Proyecto / Lab</th>
+                                <th class="p-3">Responsable</th>
+                                <th class="p-3 text-center">Acción Admin</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-slate-100">
+                            {% for mov in movements %}
+                            <tr class="hover:bg-slate-50">
+                                <td class="p-3 text-slate-500 font-mono">{{ mov.timestamp.strftime('%d/%m/%Y %H:%M') if mov.timestamp else 'N/A' }}</td>
+                                <td class="p-3 font-bold">
+                                    <span class="px-2.5 py-1 rounded-full text-[10px] uppercase font-bold {% if mov.type == 'Entrada' %}bg-emerald-100 text-emerald-800{% elif mov.type == 'Salida' %}bg-rose-100 text-rose-800{% else %}bg-cyan-100 text-cyan-800{% endif %}">
+                                        {{ mov.type }}
+                                    </span>
+                                </td>
+                                <td class="p-3 font-bold text-slate-900">{{ mov.item_name }}</td>
+                                <td class="p-3 text-center font-bold text-sm text-slate-900">{{ mov.quantity }}</td>
+                                <td class="p-3 font-medium text-slate-900">{{ mov.project_name or mov.service or '-' }}</td>
+                                <td class="p-3 text-cyan-900 font-bold">{{ mov.user_name }}</td>
+                                <td class="p-3 text-center">
+                                    <button onclick="revertMovementModal('{{ mov.id }}')" class="px-2 py-1 bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold rounded text-[11px]">
+                                        <i class="fa-solid fa-rotate-left"></i> Revertir
+                                    </button>
+                                </td>
+                            </tr>
+                            {% else %}
+                            <tr><td colspan="7" class="p-8 text-center text-slate-400 italic">No hay movimientos registrados.</td></tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- MODAL REVERTIR MOVIMIENTO -->
+        <div id="revertModal" class="hidden fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl max-w-md w-full p-6 shadow-xl border space-y-4">
+                <div class="flex justify-between items-center border-b pb-2">
+                    <h3 class="font-bold text-slate-900 text-base">Autorización de Administrador</h3>
+                    <button onclick="closeRevertModal()" class="text-slate-400 hover:text-slate-600 text-lg">&times;</button>
+                </div>
+                <p class="text-xs text-slate-600">Ingrese el PIN del Administrador para revertir este movimiento y devolver el stock.</p>
+                <form action="/revert_movement" method="POST" class="space-y-3">
+                    <input type="hidden" name="movement_id" id="modal_movement_id">
+                    <div>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">PIN del Administrador</label>
+                        <input type="password" name="admin_pin" required placeholder="PIN" class="w-full p-2.5 border rounded-xl text-center text-lg font-bold tracking-widest outline-none">
+                    </div>
+                    <button type="submit" class="w-full bg-rose-600 hover:bg-rose-700 text-white font-bold py-2.5 rounded-xl transition">
+                        Confirmar Reversión
+                    </button>
+                </form>
             </div>
         </div>
 
         {% elif view == 'usuarios' %}
         {% if not is_admin %}
-        <div class="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 max-w-md mx-auto text-center">
-            <div class="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center text-2xl mx-auto mb-4">
-                <i class="fa-solid fa-lock"></i>
+        <div class="bg-white p-8 rounded-2xl shadow-sm border border-slate-200 max-w-md mx-auto text-center space-y-4">
+            <div class="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center text-2xl mx-auto">
+                <i class="fa-solid fa-user-lock"></i>
             </div>
-            <h2 class="text-lg font-bold text-slate-900">Acceso Restringido a Administrador</h2>
-            <p class="text-xs text-slate-500 mt-1 mb-6">Ingrese la contraseña del Administrador (PIN: 1234) para gestionar el personal.</p>
+            <h2 class="text-lg font-bold text-slate-900">Acceso Exclusivo de Administrador</h2>
+            <p class="text-xs text-slate-500">Solo el Administrador puede gestionar los investigadores y accesos.</p>
 
-            <form action="/auth_admin" method="POST" class="space-y-4">
-                <input type="password" name="admin_pin" required placeholder="Contraseña de Administrador" class="w-full p-3 border rounded-xl text-center text-lg tracking-widest outline-none">
-                <button type="submit" class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 rounded-xl transition">
-                    Desbloquear Pestaña
+            <form action="/auth_admin_users" method="POST" class="space-y-3">
+                <input type="password" name="admin_pin" required placeholder="PIN de Administrador" class="w-full p-3 border rounded-xl text-center text-lg font-bold tracking-widest outline-none focus:ring-2 focus:ring-cyan-500">
+                <button type="submit" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3 rounded-xl transition">
+                    Desbloquear Administración
                 </button>
             </form>
         </div>
         {% else %}
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
+        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6 max-w-5xl mx-auto">
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-1">
                 <h2 class="text-base font-bold text-slate-900 mb-4 border-b pb-2 flex items-center gap-2">
-                    <i class="fa-solid fa-user-plus text-teal-600"></i> Registrar Personal
+                    <i class="fa-solid fa-user-plus text-cyan-600"></i> Registrar / Modificar Usuario
                 </h2>
-                <form action="/save_user" method="POST" class="space-y-4">
+                <form action="/save_user" method="POST" class="space-y-3">
+                    <input type="hidden" name="user_id" id="edit_user_id">
                     <div>
                         <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Nombre Completo</label>
-                        <input type="text" name="name" required placeholder="Ej. Dr. Juan Pérez" class="w-full p-2.5 border rounded-xl text-sm outline-none">
+                        <input type="text" name="name" id="edit_user_name" required placeholder="Dr. Carlos Mendoza" class="w-full p-2.5 border rounded-xl text-sm outline-none">
                     </div>
                     <div>
-                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Cargo / Rol</label>
-                        <select name="role" required class="w-full p-2.5 border rounded-xl text-sm bg-slate-50 outline-none">
-                            <option value="Investigador Principal">Investigador Principal</option>
+                        <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Rol / Puesto</label>
+                        <select name="role" id="edit_user_role" required class="w-full p-2.5 border rounded-xl text-sm bg-slate-50 outline-none">
+                            <option value="Investigador Titular">Investigador Titular</option>
                             <option value="Técnico de Laboratorio">Técnico de Laboratorio</option>
-                            <option value="Analista QC">Analista QC</option>
+                            <option value="Asistente de Investigación">Asistente de Investigación</option>
                             <option value="Administrador">Administrador</option>
                         </select>
                     </div>
                     <div>
                         <label class="block text-xs font-bold text-slate-600 uppercase mb-1">PIN / Contraseña</label>
-                        <input type="password" name="pin" required placeholder="••••" class="w-full p-2.5 border rounded-xl text-sm outline-none">
+                        <input type="password" name="pin" id="edit_user_pin" required placeholder="PIN de 4 dígitos" class="w-full p-2.5 border rounded-xl text-sm outline-none font-mono">
                     </div>
-                    <button type="submit" class="w-full bg-teal-600 hover:bg-teal-700 text-white font-bold py-3 rounded-xl shadow-md transition">
-                        Guardar Personal
+                    <button type="submit" class="w-full bg-cyan-600 hover:bg-cyan-700 text-white font-bold py-3 rounded-xl shadow-md transition">
+                        Guardar Usuario
                     </button>
                 </form>
             </div>
+
             <div class="bg-white p-6 rounded-2xl shadow-sm border border-slate-200 lg:col-span-2">
                 <h2 class="text-base font-bold text-slate-900 mb-4 border-b pb-2 flex items-center gap-2">
-                    <i class="fa-solid fa-users text-teal-600"></i> Personal Autorizado
+                    <i class="fa-solid fa-users-gear text-cyan-600"></i> Personal Registrado
                 </h2>
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     {% for u in users %}
@@ -638,8 +834,11 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                         <div>
                             <h4 class="font-bold text-slate-900 text-sm">{{ u.name }}</h4>
                             <p class="text-xs text-slate-500">{{ u.role }}</p>
+                            <p class="text-[10px] text-cyan-600 font-mono mt-1">PIN: ••••</p>
                         </div>
-                        <span class="text-xs font-mono bg-teal-100 text-teal-800 px-2 py-1 rounded">Activo</span>
+                        <button onclick="editUser('{{ u.id }}', '{{ u.name }}', '{{ u.role }}', '{{ u.pin }}')" class="px-2.5 py-1 bg-cyan-100 hover:bg-cyan-200 text-cyan-800 font-bold rounded-lg text-xs transition">
+                            <i class="fa-solid fa-pen"></i> Editar PIN
+                        </button>
                     </div>
                     {% endfor %}
                 </div>
@@ -650,10 +849,88 @@ HTML_TEMPLATE = """<!DOCTYPE html>
     </main>
 
     <script>
+        let cart = [];
+
         function selectUser(id) {
             var elem = document.getElementById('userSelect');
             if(elem) elem.value = id;
         }
+
+        function addToCart() {
+            const itemInput = document.getElementById('temp_item');
+            const itemSearchValue = itemInput.value.trim();
+            const type = document.getElementById('temp_type').value;
+            const warehouse = document.getElementById('temp_warehouse').value;
+            const quantity = parseInt(document.getElementById('temp_quantity').value) || 1;
+
+            if (!itemSearchValue) {
+                alert('Por favor seleccione un reactivo o material.');
+                return;
+            }
+
+            cart.push({
+                item_search: itemSearchValue,
+                type: type,
+                warehouse: warehouse,
+                quantity: quantity
+            });
+
+            itemInput.value = '';
+            document.getElementById('temp_quantity').value = 1;
+            renderCart();
+        }
+
+        function removeFromCart(index) {
+            cart.splice(index, 1);
+            renderCart();
+        }
+
+        function renderCart() {
+            const tbody = document.getElementById('cartTableBody');
+            const badge = document.getElementById('cartCountBadge');
+            
+            badge.innerText = cart.length + ' ítems';
+
+            if (cart.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="5" class="p-6 text-center text-slate-400 italic">
+                            No hay elementos agregados.
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            let html = '';
+            cart.forEach((item, index) => {
+                html += `
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-2.5 font-bold text-slate-800">${item.item_search}</td>
+                        <td class="p-2.5 font-medium text-xs">${item.type}</td>
+                        <td class="p-2.5 text-xs text-slate-500">${item.warehouse}</td>
+                        <td class="p-2.5 text-center font-bold text-sm text-slate-900">${item.quantity}</td>
+                        <td class="p-2.5 text-center">
+                            <button type="button" onclick="removeFromCart(${index})" class="px-2 py-1 bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold rounded text-xs transition">
+                                <i class="fa-solid fa-trash"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            });
+
+            tbody.innerHTML = html;
+        }
+
+        function validateBatchForm() {
+            if (cart.length === 0) {
+                alert('Debe agregar al menos un ítem al registro.');
+                return false;
+            }
+            document.getElementById('cart_data_input').value = JSON.stringify(cart);
+            return true;
+        }
+
         function filterInventory() {
             var input = document.getElementById("inventorySearch");
             var filter = input.value.toLowerCase();
@@ -662,6 +939,42 @@ HTML_TEMPLATE = """<!DOCTYPE html>
                 var text = rows[i].innerText.toLowerCase();
                 rows[i].style.display = text.includes(filter) ? "" : "none";
             }
+        }
+
+        function openEditItemModal(id, code, name, category, cas, storage, etiq, lote, cad, gen, est) {
+            document.getElementById('modal_item_id').value = id;
+            document.getElementById('modal_code').value = code;
+            document.getElementById('modal_name').value = name;
+            document.getElementById('modal_category').value = category;
+            document.getElementById('modal_cas').value = cas;
+            document.getElementById('modal_storage').value = storage;
+            document.getElementById('modal_etiqueta').value = etiq;
+            document.getElementById('modal_lote').value = lote;
+            document.getElementById('modal_caducidad').value = cad;
+            document.getElementById('modal_stock_general').value = gen;
+            document.getElementById('modal_stock_estacion').value = est;
+            document.getElementById('modalItemTitle').innerText = 'Modificar: ' + name;
+            document.getElementById('editModal').classList.remove('hidden');
+        }
+
+        function closeModal() {
+            document.getElementById('editModal').classList.add('hidden');
+        }
+
+        function revertMovementModal(id) {
+            document.getElementById('modal_movement_id').value = id;
+            document.getElementById('revertModal').classList.remove('hidden');
+        }
+
+        function closeRevertModal() {
+            document.getElementById('revertModal').classList.add('hidden');
+        }
+
+        function editUser(id, name, role, pin) {
+            document.getElementById('edit_user_id').value = id;
+            document.getElementById('edit_user_name').value = name;
+            document.getElementById('edit_user_role').value = role;
+            document.getElementById('edit_user_pin').value = pin;
         }
     </script>
 </body>
@@ -675,199 +988,379 @@ HTML_TEMPLATE = """<!DOCTYPE html>
 @app.route("/")
 @app.route("/terminal")
 def terminal():
-    items = Item.query.order_by(Item.name).all()
+    items = Item.query.order_by(Item.name, Item.lote).all()
     users = User.query.order_by(User.name).all()
-    return render_template_string(HTML_TEMPLATE, view="terminal", items=items, users=users)
+    projects = Project.query.order_by(Project.name).all()
+    return render_template_string(HTML_TEMPLATE, view="terminal", items=items, users=users, projects=projects)
 
-@app.route("/alta_insumos")
-def alta_insumos():
-    return render_template_string(HTML_TEMPLATE, view="alta_insumos")
+@app.route("/register_batch", methods=["POST"])
+def register_batch():
+    user_id = request.form.get("user_id")
+    pin = request.form.get("pin")
+    project_name = request.form.get("project_name", "").strip()
+    service = request.form.get("service", "").strip()
+    notes = request.form.get("notes", "").strip()
+    cart_json = request.form.get("cart_data", "[]")
+
+    user = User.query.get(user_id)
+    if not user or user.pin != pin:
+        flash("PIN o contraseña de usuario incorrecta.", "error")
+        return redirect(url_for("terminal"))
+
+    try:
+        cart_items = json.loads(cart_json)
+    except Exception:
+        flash("Error al procesar la lista.", "error")
+        return redirect(url_for("terminal"))
+
+    if not cart_items or len(cart_items) == 0:
+        flash("Debe agregar al menos un elemento.", "error")
+        return redirect(url_for("terminal"))
+
+    if project_name:
+        existing_proj = Project.query.filter_by(name=project_name).first()
+        if not existing_proj:
+            new_p = Project(name=project_name)
+            db.session.add(new_p)
+
+    processed_count = 0
+
+    for cart_item in cart_items:
+        item_search = cart_item.get("item_search", "").strip()
+        mov_type = cart_item.get("type")
+        warehouse = cart_item.get("warehouse")
+        quantity = int(cart_item.get("quantity", 1))
+
+        item = None
+        if item_search.startswith("[ID:") and "]" in item_search:
+            try:
+                item_id = int(item_search.split("[ID:")[1].split("]")[0])
+                item = Item.query.get(item_id)
+            except Exception:
+                item = None
+
+        if not item:
+            clean_code = item_search.split(" - ")[0] if " - " in item_search else item_search
+            item = Item.query.filter((Item.code == clean_code) | (Item.name.ilike(f"%{item_search}%"))).first()
+
+        if not item:
+            continue
+
+        if mov_type == "Entrada":
+            if warehouse == "Almacén General":
+                item.stock_general += quantity
+            else:
+                item.stock_estacion += quantity
+
+        elif mov_type == "Salida":
+            if warehouse == "Almacén General":
+                if item.stock_general < quantity:
+                    flash(f"Stock insuficiente para '{item.name}' en Almacén General.", "error")
+                    db.session.rollback()
+                    return redirect(url_for("terminal"))
+                item.stock_general -= quantity
+            else:
+                if item.stock_estacion < quantity:
+                    flash(f"Stock insuficiente para '{item.name}' en Estación de Trabajo.", "error")
+                    db.session.rollback()
+                    return redirect(url_for("terminal"))
+                item.stock_estacion -= quantity
+
+        elif mov_type == "Traspaso Estacion":
+            if item.stock_general < quantity:
+                flash(f"Stock insuficiente para traspasar '{item.name}'.", "error")
+                db.session.rollback()
+                return redirect(url_for("terminal"))
+            item.stock_general -= quantity
+            item.stock_estacion += quantity
+
+        mov = Movement(
+            timestamp=get_local_now(),
+            item_code=item.code,
+            item_name=f"{item.name} (Lote: {item.lote or 'S/L'})",
+            type=mov_type,
+            quantity=quantity,
+            warehouse=warehouse,
+            service=service,
+            project_name=project_name,
+            user_name=user.name,
+            notes=notes
+        )
+        db.session.add(mov)
+        processed_count += 1
+
+    db.session.commit()
+    flash(f"Operación de {processed_count} ítem(s) registrada con éxito.", "success")
+    return redirect(url_for("terminal"))
 
 @app.route("/inventario")
 def inventario():
-    items = Item.query.order_by(Item.name).all()
-    today_str = datetime.now(LOCAL_TZ).date().isoformat()
-    warning_str = (datetime.now(LOCAL_TZ).date() + timedelta(days=30)).isoformat()
-    return render_template_string(HTML_TEMPLATE, view="inventario", items=items, today_str=today_str, warning_str=warning_str)
+    items = Item.query.order_by(Item.name, Item.lote).all()
+    projects = Project.query.order_by(Project.name).all()
+    return render_template_string(HTML_TEMPLATE, view="inventario", items=items, projects=projects)
+
+@app.route("/update_item", methods=["POST"])
+def update_item():
+    admin_pin = request.form.get("admin_pin", "").strip()
+    admin_user = User.query.filter_by(role="Administrador").first()
+
+    if admin_pin not in ["5678", "1234"] and (not admin_user or admin_user.pin != admin_pin):
+        flash("PIN de Administrador incorrecto.", "error")
+        return redirect(url_for("inventario"))
+
+    item_id = request.form.get("item_id")
+    item = Item.query.get(item_id)
+    if item:
+        item.code = request.form.get("code", item.code).strip().upper()
+        item.name = request.form.get("name", item.name).strip()
+        item.category = request.form.get("category", item.category)
+        item.cas_number = request.form.get("cas_number", item.cas_number).strip()
+        item.storage_condition = request.form.get("storage_condition", item.storage_condition).strip()
+        item.etiqueta = request.form.get("etiqueta", item.etiqueta)
+        item.lote = request.form.get("lote", item.lote).strip()
+        item.caducidad = request.form.get("caducidad", item.caducidad).strip()
+        item.stock_general = int(request.form.get("stock_general", item.stock_general))
+        item.stock_estacion = int(request.form.get("stock_estacion", item.stock_estacion))
+        
+        db.session.commit()
+        flash(f"Parámetros de '{item.name}' actualizados con éxito.", "success")
+    
+    return redirect(url_for("inventario"))
 
 @app.route("/limpieza")
 def limpieza():
     cleaning_logs = CleaningLog.query.order_by(CleaningLog.timestamp.desc()).all()
-    users = User.query.order_by(User.name).all()
-    return render_template_string(HTML_TEMPLATE, view="limpieza", cleaning_logs=cleaning_logs, users=users)
-
-@app.route("/bitacora")
-def bitacora():
-    movements = Movement.query.order_by(Movement.timestamp.desc()).all()
-    return render_template_string(HTML_TEMPLATE, view="bitacora", movements=movements)
-
-@app.route("/usuarios")
-def usuarios():
-    users = User.query.order_by(User.name).all()
-    is_admin = request.args.get("admin") == "true"
-    return render_template_string(HTML_TEMPLATE, view="usuarios", users=users, is_admin=is_admin)
-
-@app.route("/auth_admin", methods=["POST"])
-def auth_admin():
-    admin_pin = request.form.get("admin_pin")
-    admin_user = User.query.filter_by(role="Administrador").first()
+    users = User.query.order_by(User.id).all()
     
-    if admin_pin == "1234" or admin_pin == "5678" or (admin_user and admin_user.pin == admin_pin):
-        flash("Acceso concedido a la gestión de personal.", "success")
-        return redirect(url_for("usuarios", admin="true"))
-    else:
-        flash("Contraseña de Administrador incorrecta.", "error")
-        return redirect(url_for("usuarios"))
+    # EXCLUSIÓN ESTRICTA DE ADMINISTRADORES DEL ROL ROTATIVO
+    operational_users = User.query.filter(User.role != "Administrador").order_by(User.id).all()
 
-@app.route("/add_item", methods=["POST"])
-def add_item():
-    try:
-        new_item = Item(
-            code=request.form.get("code", "").strip().upper(),
-            cas_number=request.form.get("cas_number", "").strip(),
-            name=request.form.get("name", "").strip(),
-            category=request.form.get("category"),
-            purity=request.form.get("purity"),
-            physical_state=request.form.get("physical_state"),
-            storage_condition=request.form.get("storage_condition"),
-            hazard_label=request.form.get("hazard_label"),
-            location=request.form.get("location"),
-            lote=request.form.get("lote"),
-            caducidad=request.form.get("caducidad"),
-            stock_general=float(request.form.get("stock_general", 0)),
-            unit=request.form.get("unit")
-        )
-        db.session.add(new_item)
-        db.session.commit()
-        flash("Reactivo registrado con éxito.", "success")
-    except Exception as e:
-        db.session.rollback()
-        flash(f"Error al registrar: {str(e)}", "error")
-    return redirect(url_for("alta_insumos"))
+    now = get_local_now()
+    current_year, current_week, _ = now.isocalendar()
 
-@app.route("/register", methods=["POST"])
-def register_movement():
-    user_id = request.form.get("user_id")
-    pin = request.form.get("pin")
-    item_search = request.form.get("item_search", "").strip()
-    mov_type = request.form.get("type")
-    warehouse = request.form.get("warehouse")
-    quantity = float(request.form.get("quantity", 1))
-    service = request.form.get("service")
-    patient_name = request.form.get("patient_name")
-    patient_id = request.form.get("patient_id")
-    notes = request.form.get("notes")
-
-    user = User.query.get(user_id)
-    if not user or user.pin != pin:
-        flash("PIN o usuario incorrecto.", "error")
-        return redirect(url_for("terminal"))
-
-    item = None
-    if item_search.startswith("[ID:") and "]" in item_search:
+    def get_week_range(year, week):
         try:
-            item_id = int(item_search.split("[ID:")[1].split("]")[0])
-            item = Item.query.get(item_id)
+            first_day = datetime.strptime(f'{year}-W{int(week):02d}-1', "%Y-W%W-%w")
         except Exception:
-            item = None
+            first_day = now
+        last_day = first_day + timedelta(days=6)
+        return f"{first_day.strftime('%d/%m')} al {last_day.strftime('%d/%m')}"
 
-    if not item:
-        clean_code = item_search.split(" - ")[0] if " - " in item_search else item_search
-        item = Item.query.filter((Item.code == clean_code) | (Item.name.ilike(f"%{item_search}%"))).first()
+    cleaning_tasks = [
+        "💨 Sanitización Diaria de Campana de Extracción",
+        "🧫 Limpieza y Desinfección de Mesas de Trabajo",
+        "🧪 Revisión de Residuos Peligrosos y Reactivos"
+    ]
 
-    if not item:
-        flash("Reactivo no encontrado.", "error")
-        return redirect(url_for("terminal"))
+    user_roles_detail = []
 
-    if mov_type == "Entrada":
-        item.stock_general += quantity
-    else:
-        if item.stock_general < quantity:
-            flash(f"Stock insuficiente ({item.stock_general} {item.unit} disponibles).", "error")
-            return redirect(url_for("terminal"))
-        item.stock_general -= quantity
+    if operational_users:
+        num_users = len(operational_users)
+        num_tasks = len(cleaning_tasks)
 
-    mov = Movement(
-        timestamp=get_local_now(),
-        item_code=item.code,
-        item_name=item.name,
-        type=mov_type,
-        quantity=quantity,
-        warehouse=warehouse,
-        service=service,
-        patient_name=patient_name,
-        patient_id=patient_id,
-        user_name=user.name,
-        notes=notes
+        for idx, u in enumerate(operational_users):
+            task_index_this_week = (current_week + idx) % num_tasks
+            task_index_next_week = (current_week + 1 + idx) % num_tasks
+
+            task_this_week = cleaning_tasks[task_index_this_week]
+            task_next_week = cleaning_tasks[task_index_next_week]
+
+            user_roles_detail.append({
+                'user': u,
+                'task_this_week': task_this_week,
+                'task_next_week': task_next_week
+            })
+
+    week_dates_current = get_week_range(current_year, current_week)
+    week_dates_next = get_week_range(current_year, current_week + 1)
+
+    projects = Project.query.order_by(Project.name).all()
+    return render_template_string(
+        HTML_TEMPLATE,
+        view="limpieza",
+        cleaning_logs=cleaning_logs,
+        users=users,
+        projects=projects,
+        current_week=current_week,
+        current_year=current_year,
+        week_dates_current=week_dates_current,
+        week_dates_next=week_dates_next,
+        user_roles_detail=user_roles_detail
     )
-    db.session.add(mov)
-    db.session.commit()
-
-    flash(f"Movimiento registrado para '{item.name}'.", "success")
-    return redirect(url_for("terminal"))
 
 @app.route("/add_cleaning", methods=["POST"])
 def add_cleaning():
     user_id = request.form.get("user_id")
     pin = request.form.get("pin")
-    campanas = 'campanas' in request.form
-    superficies = 'superficies' in request.form
-    residuos = 'residuos' in request.form
+    campana_extraccion = 'campana_extraccion' in request.form
+    mesas_trabajo = 'mesas_trabajo' in request.form
+    reactivos_residuos = 'reactivos_residuos' in request.form
     notes = request.form.get("notes")
 
     user = User.query.get(user_id)
     if not user or user.pin != pin:
-        flash("PIN incorrecto.", "error")
+        flash("PIN o usuario incorrecto.", "error")
         return redirect(url_for("limpieza"))
 
     log = CleaningLog(
         timestamp=get_local_now(),
         user_name=user.name,
-        campanas=campanas,
-        superficies=superficies,
-        residuos=residuos,
+        campana_extraccion=campana_extraccion,
+        mesas_trabajo=mesas_trabajo,
+        reactivos_residuos=reactivos_residuos,
         notes=notes
     )
     db.session.add(log)
     db.session.commit()
-    flash("Bitácora de mantenimiento guardada correctamente.", "success")
+    flash("Registro de mantenimiento guardado correctamente.", "success")
     return redirect(url_for("limpieza"))
+
+@app.route("/bitacora")
+def bitacora():
+    movements = Movement.query.order_by(Movement.timestamp.desc()).all()
+    projects = Project.query.order_by(Project.name).all()
+    return render_template_string(HTML_TEMPLATE, view="bitacora", movements=movements, projects=projects)
+
+@app.route("/revert_movement", methods=["POST"])
+def revert_movement():
+    mov_id = request.form.get("movement_id")
+    admin_pin = request.form.get("admin_pin", "").strip()
+
+    admin_user = User.query.filter_by(role="Administrador").first()
+    if admin_pin not in ["5678", "1234"] and (not admin_user or admin_user.pin != admin_pin):
+        flash("PIN de Administrador incorrecto.", "error")
+        return redirect(url_for("bitacora"))
+
+    mov = Movement.query.get(mov_id)
+    if mov:
+        clean_name = mov.item_name.split(" (Lote:")[0] if " (Lote:" in mov.item_name else mov.item_name
+        item = Item.query.filter((Item.code == mov.item_code) | (Item.name == clean_name)).first()
+
+        if item:
+            if mov.type == "Salida":
+                if mov.warehouse == "Almacén General":
+                    item.stock_general += mov.quantity
+                else:
+                    item.stock_estacion += mov.quantity
+            elif mov.type == "Entrada":
+                if mov.warehouse == "Almacén General":
+                    item.stock_general -= mov.quantity
+                else:
+                    item.stock_estacion -= mov.quantity
+
+        db.session.delete(mov)
+        db.session.commit()
+        flash("Movimiento revertido con éxito.", "success")
+
+    return redirect(url_for("bitacora"))
+
+@app.route("/usuarios")
+def usuarios():
+    users = User.query.order_by(User.name).all()
+    projects = Project.query.order_by(Project.name).all()
+    is_admin = request.args.get("admin") == "true"
+    return render_template_string(HTML_TEMPLATE, view="usuarios", users=users, projects=projects, is_admin=is_admin)
+
+@app.route("/auth_admin_users", methods=["POST"])
+def auth_admin_users():
+    admin_pin = request.form.get("admin_pin", "").strip()
+    admin_user = User.query.filter_by(role="Administrador").first()
+
+    if admin_pin in ["5678", "1234"] or (admin_user and admin_user.pin == admin_pin):
+        flash("Acceso concedido a la gestión de usuarios.", "success")
+        return redirect(url_for("usuarios", admin="true"))
+    else:
+        flash("PIN de Administrador incorrecto.", "error")
+        return redirect(url_for("usuarios"))
 
 @app.route("/save_user", methods=["POST"])
 def save_user():
+    user_id = request.form.get("user_id")
     name = request.form.get("name", "").strip()
     role = request.form.get("role")
     pin = request.form.get("pin", "").strip()
 
-    if name and pin:
-        user = User.query.filter_by(name=name).first()
-        if user:
-            user.role = role
-            user.pin = pin
-            flash(f"Usuario {name} actualizado con éxito.", "success")
-        else:
-            new_user = User(name=name, role=role, pin=pin)
-            db.session.add(new_user)
-            flash(f"Usuario {name} registrado con éxito.", "success")
-        db.session.commit()
+    if user_id:
+        u = User.query.get(user_id)
+        if u:
+            u.name = name
+            u.role = role
+            u.pin = pin
+            flash(f"Usuario '{name}' actualizado correctamente.", "success")
+    else:
+        new_u = User(name=name, role=role, pin=pin)
+        db.session.add(new_u)
+        flash(f"Usuario '{name}' creado con éxito.", "success")
+
+    db.session.commit()
     return redirect(url_for("usuarios", admin="true"))
 
+@app.route("/alta_insumos")
+def alta_insumos():
+    users = User.query.order_by(User.name).all()
+    projects = Project.query.order_by(Project.name).all()
+    return render_template_string(HTML_TEMPLATE, view="alta_insumos", users=users, projects=projects)
+
+@app.route("/add_item", methods=["POST"])
+def add_item():
+    code = request.form.get("code", "").strip().upper()
+    name = request.form.get("name", "").strip()
+    category = request.form.get("category")
+    cas_number = request.form.get("cas_number", "").strip()
+    storage_condition = request.form.get("storage_condition", "").strip()
+    lote = request.form.get("lote", "").strip()
+    caducidad = request.form.get("caducidad", "").strip()
+    etiqueta = request.form.get("etiqueta", "General")
+    unit = request.form.get("unit", "pza").strip()
+    stock_general = int(request.form.get("stock_general", 0))
+
+    try:
+        new_item = Item(
+            code=code, 
+            name=name, 
+            category=category, 
+            cas_number=cas_number,
+            storage_condition=storage_condition,
+            lote=lote,
+            caducidad=caducidad,
+            etiqueta=etiqueta,
+            unit=unit, 
+            stock_general=stock_general, 
+            stock_estacion=0
+        )
+        db.session.add(new_item)
+        db.session.commit()
+        flash(f"Insumo '{name}' registrado con éxito.", "success")
+    except Exception as e:
+        db.session.rollback()
+        flash(f"Error al registrar: {str(e)}", "error")
+
+    return redirect(url_for("alta_insumos"))
+
 # -----------------------------------------------------------------------------
-# INICIALIZACIÓN DE DATOS SEMILLA
+# INICIALIZACIÓN DE BASE DE DATOS
 # -----------------------------------------------------------------------------
+
 def seed_database():
     with app.app_context():
         db.create_all()
         if User.query.count() == 0:
-            db.session.add_all([
-                User(name="Administrador General", role="Administrador", pin="1234"),
-                User(name="Q.F.B. Laura Martínez", role="Analista QC", pin="4321")
-            ])
+            users_list = [
+                User(name="Dr. David Gonzalez", role="Administrador", pin="5678"),
+                User(name="Dra. Sofia Ramos", role="Investigador Titular", pin="4321"),
+                User(name="Alfonso Guzman", role="Técnico de Laboratorio", pin="1234"),
+                User(name="Hannia Martinez", role="Asistente de Investigación", pin="1122")
+            ]
+            db.session.add_all(users_list)
+
         if Item.query.count() == 0:
-            db.session.add_all([
-                Item(code="REQ-01", name="Etanol Absoluto ACS", cas_number="64-17-5", category="Reactivo Químico", purity="99.9%", physical_state="Líquido", storage_condition="Campana Inflamables", hazard_label="Inflamable", location="Estante A-1", lote="ET-2026-1", caducidad="2028-12-31", stock_general=2500, unit="ml"),
-                Item(code="REQ-02", name="Ácido Clorhídrico 37%", cas_number="7647-01-0", category="Reactivo Químico", purity="37%", physical_state="Líquido", storage_condition="Temperatura Ambiente", hazard_label="Corrosivo", location="Gabinete Ácidos", lote="HCL-992", caducidad="2027-06-30", stock_general=1000, unit="ml")
-            ])
+            items_list = [
+                Item(code="REQ-001", name="Ácido Clorhídrico 37%", category="Reactivo Químico", cas_number="7647-01-0", storage_condition="Temperatura Ambiente", lote="LOT-A991", caducidad="2028-05-30", etiqueta="Corrosivo", stock_general=25, stock_estacion=5),
+                Item(code="REQ-002", name="Etanol Absoluto", category="Reactivo Químico", cas_number="64-17-5", storage_condition="Área de Inflamables", lote="LOT-B102", caducidad="2027-10-15", etiqueta="Inflamable", stock_general=50, stock_estacion=10),
+                Item(code="MAT-001", name="Matraz Erlenmeyer 250ml", category="Material de Vidrio", cas_number="", storage_condition="Anaquel Vidriería", lote="S/L", caducidad="", etiqueta="General", stock_general=30, stock_estacion=8)
+            ]
+            db.session.add_all(items_list)
+
         db.session.commit()
 
 seed_database()
